@@ -57,11 +57,15 @@ survivors:
   lib/pricing.rb:26  AOR: subtotal * 0.05 -> subtotal % 0.05
 ```
 
-Exit codes are `0` ok, `1` below `--min-score`, `2` error, so CI can gate on the score:
+Exit codes are `0` ok, `1` when the reported score is below `--min-score`, `2` error,
+so CI can gate on the score:
 
 ```sh
 mutation run --adapter=rspec --min-score=70 --report=json --output=mutation.json
 ```
+
+The reported score is printed at one decimal and `--min-score` compares that same value, so the
+number in the output and the exit code cannot disagree.
 
 A survivor names a line and the rewrite that survived. Line 25 above says the five-item volume
 tier has no test at all: the suite only exercises the ten-item tier.
@@ -81,7 +85,7 @@ tier has no test at all: the suite only exercises the ten-item tier.
 | `--isolation=fork\|process` | `fork` | reload a preloaded suite, or boot a fresh process |
 | `--report=terminal\|json\|quiet` | `terminal` | output |
 | `--output=PATH` | none | write the JSON report |
-| `--min-score=PCT` | none | exit 1 below this score |
+| `--min-score=PCT` | none | exit 1 when the reported score is below this |
 | `--exclude=GLOB` | none | skip files |
 | `--limit=N` | none | cap the mutant count |
 

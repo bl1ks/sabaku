@@ -124,7 +124,10 @@ module Mutation
       return unless File.file?(@path)
 
       parsed = JSON.parse(File.read(@path))
-      entries = parsed.is_a?(Hash) ? (parsed["entries"] || parsed[:entries]) : nil
+      return unless parsed.is_a?(Hash)
+      return unless (parsed["version"] || parsed[:version]).to_i == FORMAT_VERSION
+
+      entries = parsed["entries"] || parsed[:entries]
       @entries = entries.is_a?(Hash) ? entries : {}
     rescue SystemCallError, JSON::ParserError
       @entries = {}

@@ -69,6 +69,22 @@ class AnalyzerTest < Minitest::Test
     assert_empty analyze(built, diff_ranges: { "lib/other.rb" => [1..3] })
   end
 
+  def test_diff_filters_on_the_line_a_statement_mutant_is_reported_on
+    built = source(<<~RUBY, "lib/subject.rb")
+      def total(x)
+        a = x + 1
+        b = a * 2
+        a + b
+      end
+    RUBY
+
+    first_only = analyze(built, diff_ranges: { "lib/subject.rb" => [2..2] }, per_line: 99)
+    second_only = analyze(built, diff_ranges: { "lib/subject.rb" => [3..3] }, per_line: 99)
+
+    assert_equal [2], first_only.map(&:line).uniq
+    assert(second_only.any? { |mutant| mutant.operator == :sbr && mutant.line == 3 })
+  end
+
   def test_per_line_caps_mutants_on_one_line
     built = source("a + b + c\n")
 

@@ -28,6 +28,12 @@ module Mutation
       counts[:killed].fdiv(denominator)
     end
 
+    # The percentage the terminal prints and --min-score compares. One value and one rounding,
+    # so a run cannot show 80.0% and exit as if it were below 80.
+    def score_pct
+      (score * 100).round(1)
+    end
+
     def survivors = results.select(&:survived?)
 
     def per_file
@@ -65,7 +71,7 @@ module Mutation
         out << format("  %-#{width}s  %5d  %5.1f%%%s\n", status, count, share, note_for(status))
       end
       out << format("\n  mutation score  %5.1f%%  (killed / killed+survived+timeout)\n",
-                    score * 100)
+                    score_pct)
       out << "\n"
     end
 

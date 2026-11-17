@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# The formal verification gate: Lean proofs, the Lean/Ruby replay, and the Quint model.
+#
+# The default run bounds the Quint check at six steps so the gate stays under about two minutes.
+# `--deep` raises the bound to ten steps, which is a complete three-mutant campaign and takes
+# about five minutes.
+set -euo pipefail
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+
+deep=0
+for arg in "$@"; do
+  case "$arg" in
+    --deep) deep=1 ;;
+    *)
+      echo "usage: bin/formal [--deep]" >&2
+      exit 2
+      ;;
+  esac
+done
+
+invariants=(INV_one_result INV_done_has_result INV_uncovered_has_no_child INV_capacity
+            INV_report_complete INV_report_has_every_result INV_score_bound
+            INV_denominator_covers_timeouts)
+
+echo "== lean: build and prove =="
+(cd formal/lean && lake build)
+if grep -rnE '\b(sorry|admit)\b' formal/lean/Mutation >/dev/null; then
+  echo "formal: an unfinished proof remains in formal/lean" >&2
+  exit 1
+fi
+
+echo "== replay: the same splice and score from Lean and Ruby =="
+mkdir -p formal/out
+./bin/rt ruby formal/replay/emit.rb
+(cd formal/lean && lake exe replay < ../out/replay.tsv)
+./bin/rt ruby formal/replay/check.rb
+
+echo "== quint: typecheck =="
+for spec in formal/quint/*.qnt; do
+  quint typecheck "$spec" >/dev/null
+done
+
+steps=6
+if [[ $deep -eq 1 ]]; then
+  steps=10
+fi
+echo "== quint: honest model at $steps steps =="
+if quint verify formal/quint/runner.qnt --max-steps="$steps" \
+    --invariants "${invariants[@]}" > formal/out/quint-honest.log 2>&1; then
+  echo "  no violation at $steps steps"
+else
+  echo "formal: the honest model violates an invariant" >&2
+  tail -20 formal/out/quint-honest.log >&2
+  exit 1
+fi
+
+echo "== quint: fault variants must violate =="
+./formal/quint/variants.sh >/dev/null
+for spec in formal/quint/broken/*.qnt; do
+  name=$(basename "$spec" .qnt)
+  if quint verify "$spec" --max-steps=8 --invariants "${invariants[@]}" \
+      > "formal/out/quint-$name.log" 2>&1; then
+    echo "formal: $name did not violate its invariant" >&2
+    tail -20 "formal/out/quint-$name.log" >&2
+    exit 1
+  fi
+  echo "  $name: violation found"
+done
+
+echo "== findings stay fixed =="
+./formal/regressions.sh
+
+echo "formal: ok"

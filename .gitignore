@@ -3,3 +3,9 @@ bench/out/
 *.gem
 .DS_Store
 .mutation-cache.json
+
+# formal verification products
+formal/out/
+formal/quint/broken/
+formal/lean/.lake/
+_apalache-out/

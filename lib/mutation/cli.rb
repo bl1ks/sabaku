@@ -85,7 +85,7 @@ module Mutation
       threshold = options[:min_score]
       return EXIT_OK if threshold.nil?
 
-      report.score * 100 < threshold ? EXIT_BELOW_SCORE : EXIT_OK
+      report.score_pct < threshold ? EXIT_BELOW_SCORE : EXIT_OK
     end
 
     def list_command
@@ -156,12 +156,14 @@ module Mutation
         o.on("--isolation=MODE", "fork or process") { |v| options[:isolation] = v.to_sym }
         o.on("--report=FORMAT", "terminal, json, quiet") { |v| options[:report] = v.to_sym }
         o.on("--output=PATH", "write the JSON report here") { |v| options[:output] = v }
-        o.on("--min-score=PCT", Float, "exit 1 below this score") { |v| options[:min_score] = v }
+        o.on("--min-score=PCT", Float, "exit 1 when the reported score is below this") do |v|
+          options[:min_score] = v
+        end
         o.on("--exclude=GLOB", "skip files") { |v| (options[:exclude] ||= []) << v }
         o.on("--limit=N", Integer, "cap the number of mutants") { |v| options[:limit] = v }
         o.on("-h", "--help", "this") do
           @out.puts(o.to_s)
-          throw(:help)
+          throw(:help, :help)
         end
       end
       caught = catch(:help) do
@@ -254,9 +256,9 @@ module Mutation
           --isolation=fork|process   fork from a preloaded suite, or a fresh process
           --report=terminal|json     output format
           --output=PATH              write the JSON report
-          --min-score=PCT            exit 1 when the score is below this
+          --min-score=PCT            exit 1 when the reported score is below this
 
-        Exit codes: 0 ok, 1 below --min-score, 2 error.
+        Exit codes: 0 ok, 1 when the reported score is below --min-score, 2 error.
       HELP
     end
   end

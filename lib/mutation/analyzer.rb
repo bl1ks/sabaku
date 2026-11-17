@@ -68,9 +68,10 @@ module Mutation
         applicable.each do |operator|
           operator.mutations(node, source).each do |replacement|
             verify!(operator, replacement, actual, source, node)
-            next unless diff_covers?(source, node.location.start_line)
+            line = replacement.line || node.location.start_line
+            next unless diff_covers?(source, line)
 
-            candidates << build_mutant(source, node, operator, replacement)
+            candidates << build_mutant(source, node, operator, replacement, line)
           end
         end
       end
@@ -96,12 +97,12 @@ module Mutation
       file_ranges.any? { |range| range.respond_to?(:cover?) && range.cover?(line) }
     end
 
-    def build_mutant(source, node, operator, replacement)
+    def build_mutant(source, node, operator, replacement, line)
       location = node.location
       Mutant.new(
         path: source.rel_path,
         operator: operator.id,
-        line: replacement.line || location.start_line,
+        line: line,
         column: location.start_column,
         node_kind: node.class.name.split("::").last,
         original: replacement.original,

@@ -36,6 +36,16 @@ class ReportTest < Minitest::Test
     assert_equal 0.0, report([]).score
   end
 
+  def test_the_printed_percentage_and_the_gate_use_one_rounding
+    results = Array.new(3999) { result(:killed) } + Array.new(1001) { result(:survived) }
+
+    doc = report(results)
+
+    assert_in_delta 0.7998, doc.score, 1e-9
+    assert_equal 80.0, doc.score_pct
+    assert_includes doc.status_lines, "80.0%"
+  end
+
   def test_terminal_names_the_survivors_with_their_location
     results = [result(:killed), result(:survived, line: 42)]
     text = report(results).to_terminal
