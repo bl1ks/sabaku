@@ -168,9 +168,14 @@ module Mutation
           candidates << klass
         end
 
+        # Minitest::Spec only exists once minitest/spec is loaded; a Rails
+        # test_helper requires minitest but not minitest/spec, so naming the
+        # constant unconditionally raises NameError during preload.
+        spec = defined?(::Minitest::Spec) ? ::Minitest::Spec : nil
+
         candidates
           .select { |klass| klass.is_a?(Class) && klass < ::Minitest::Test }
-          .reject { |klass| klass == ::Minitest::Test || klass == ::Minitest::Spec }
+          .reject { |klass| klass == ::Minitest::Test || klass == spec }
           .reject { |klass| klass.name.nil? || test_methods_for(klass).empty? }
           .uniq
           .sort_by(&:name)

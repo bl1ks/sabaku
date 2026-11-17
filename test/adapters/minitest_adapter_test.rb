@@ -70,3 +70,20 @@ class MinitestAdapterTest < Minitest::Test
     end
   end
 end
+
+class MinitestAdapterTest < Minitest::Test
+  # A Rails test_helper requires minitest but not minitest/spec, so the
+  # adapter must not name Minitest::Spec while discovering test classes.
+  def test_preload_succeeds_when_minitest_spec_is_not_loaded
+    spec = Minitest::Spec
+    Minitest.send(:remove_const, :Spec)
+
+    in_project("no_spec_minitest", glob: "test/*_case.rb") do
+      adapter = Mutation::Adapter.for(:minitest, config_for)
+      adapter.preload!
+      assert_equal ["HiddenCaseTest#test_value"], adapter.test_ids
+    end
+  ensure
+    Minitest.const_set(:Spec, spec) unless Minitest.const_defined?(:Spec, false)
+  end
+end
