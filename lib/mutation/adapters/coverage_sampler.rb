@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../coverage_map"
+require_relative "../source"
 
 module Mutation
   module Adapters
@@ -18,10 +19,11 @@ module Mutation
     #     repo-relative path so `CoverageMap#tests_for(mutant.path, ...)` lines
     #     up with `Mutant#path`.
     class CoverageSampler
-      def initialize(config, adapter, sources)
+      def initialize(config, adapter, sources, mutants: nil)
         @config = config
         @adapter = adapter
         @sources = Array(sources)
+        @mutants = mutants.nil? ? nil : Array(mutants)
       end
 
       # -> CoverageMap
@@ -29,6 +31,7 @@ module Mutation
         require "coverage"
 
         targets = target_files
+        @wanted_lines = @mutants && wanted_lines
         started_here = false
         unless ::Coverage.running?
           if @adapter.respond_to?(:preloaded?) && @adapter.preloaded?
@@ -97,6 +100,34 @@ module Mutation
         targets
       end
 
+      # The lines the runner can ask about: every mutant's own span plus the
+      # statement span it falls back to when line coverage is coarse. Recording
+      # only these lines keeps every selection query identical while skipping
+      # the rest of each source.
+      def wanted_lines
+        by_path = @sources.to_h { |source| [source.rel_path, source] }
+        spans = {}
+        wanted = @sources.to_h { |source| [source.rel_path, {}] }
+        @mutants.each do |mutant|
+          source = by_path[mutant.path]
+          next unless source
+
+          lines = wanted[mutant.path]
+          add_lines(lines, source.line_of(mutant.start_offset), source.line_of(mutant.end_offset - 1))
+          span = (spans[mutant.path] ||= Source.statement_spans(source.ast))[
+            [mutant.start_offset, mutant.end_offset]
+          ]
+          next unless span
+
+          add_lines(lines, source.line_of(span[0]), source.line_of(span[1] - 1))
+        end
+        wanted.transform_values { |lines| lines.keys.sort }
+      end
+
+      def add_lines(lines, first, last)
+        (first..last).each { |line| lines[line - 1] = true }
+      end
+
       def snapshot
         raw = ::Coverage.peek_result
         result = {}
@@ -160,18 +191,25 @@ module Mutation
           next unless relative
 
           previous = before[file]
-          fresh = []
-          lines.each_with_index do |count, index|
-            next unless count.is_a?(Integer) && count.positive?
-
-            old = previous && previous[index]
-            next if old.is_a?(Integer) && old >= count
-
-            fresh << index + 1
-          end
+          indices = @wanted_lines && @wanted_lines[relative]
+          fresh = changed_lines(lines, previous, indices)
           hits[relative] = fresh unless fresh.empty?
         end
         hits
+      end
+
+      def changed_lines(lines, previous, indices)
+        fresh = []
+        (indices || lines.each_index).each do |index|
+          count = lines[index]
+          next unless count.is_a?(Integer) && count.positive?
+
+          old = previous && previous[index]
+          next if old.is_a?(Integer) && old >= count
+
+          fresh << index + 1
+        end
+        fresh
       end
     end
   end

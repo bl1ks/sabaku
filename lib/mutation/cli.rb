@@ -69,7 +69,7 @@ module Mutation
       end
 
       adapter = start_adapter(cfg)
-      coverage_map = collect_coverage(cfg, adapter, sources)
+      coverage_map = collect_coverage(cfg, adapter, sources, mutants)
       if coverage_map.nil?
         # Selection failed. Running every test for every mutant is slow but correct;
         # an empty map would instead mark every mutant uncovered and score the run 0.
@@ -210,11 +210,11 @@ module Mutation
     end
 
     # nil means "selection is unavailable", which the caller turns into --no-coverage.
-    def collect_coverage(cfg, adapter, sources)
+    def collect_coverage(cfg, adapter, sources, mutants = nil)
       return CoverageMap.empty unless cfg.coverage
       return CoverageMap.empty unless defined?(Adapters::CoverageSampler)
 
-      Adapters::CoverageSampler.new(cfg, adapter, sources).call
+      Adapters::CoverageSampler.new(cfg, adapter, sources, mutants: mutants).call
     rescue StandardError, LoadError => e
       @err.puts("mutation: coverage collection failed (#{e.class}: #{e.message})")
       nil

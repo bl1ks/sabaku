@@ -150,26 +150,8 @@ module Mutation
     # Maps [start_offset, end_offset] of every node to the span of the statement that
     # contains it. Built once per file with one AST walk.
     def statement_span(source, mutant)
-      spans = (@statement_spans[source.rel_path] ||= build_statement_spans(source))
+      spans = (@statement_spans[source.rel_path] ||= Source.statement_spans(source.ast))
       spans[[mutant.start_offset, mutant.end_offset]]
-    end
-
-    def build_statement_spans(source)
-      map = {}
-      stack = [[source.ast, nil]]
-      until stack.empty?
-        node, statement = stack.pop
-        span = [node.location.start_offset, node.location.end_offset]
-        map[span] ||= statement || span
-        if node.is_a?(Prism::StatementsNode)
-          node.compact_child_nodes.each do |child|
-            stack.push([child, [child.location.start_offset, child.location.end_offset]])
-          end
-        else
-          node.compact_child_nodes.each { |child| stack.push([child, statement]) }
-        end
-      end
-      map
     end
 
     # Memoised per file: the parse is 50us and a campaign asks for the same file once

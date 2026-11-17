@@ -35,6 +35,30 @@ class CoverageSamplerTest < Minitest::Test
     end
   end
 
+  # Selection only ever asks about a mutant's own span or the statement span it
+  # falls back to. Recording just those lines must not change any answer.
+  def test_mutant_scope_keeps_every_selection_query_identical
+    in_project("minitest_calc") do
+      source = Mutation::Source.new("lib/pricing.rb", File.read("lib/pricing.rb"))
+      config = config_for
+      mutants = Mutation::Analyzer.new([source], config).mutants
+
+      full = Mutation::Adapters::CoverageSampler.new(
+        config, Mutation::Adapter.for(:minitest, config), [source]
+      ).call
+      scoped = Mutation::Adapters::CoverageSampler.new(
+        config, Mutation::Adapter.for(:minitest, config), [source], mutants: mutants
+      ).call
+
+      mutants.each do |mutant|
+        last = source.line_of(mutant.end_offset - 1)
+        assert_equal full.tests_for_span(mutant.path, mutant.line, last),
+                     scoped.tests_for_span(mutant.path, mutant.line, last),
+                     "selection changed for #{mutant.path}:#{mutant.line}"
+      end
+    end
+  end
+
   def test_rspec_examples_are_recorded_by_native_id
     in_project("rspec_inventory") do
       source = Mutation::Source.new("lib/inventory.rb", File.read("lib/inventory.rb"))

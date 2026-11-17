@@ -16,6 +16,26 @@ module Mutation
       freeze
     end
 
+    # Maps [start_offset, end_offset] of every node to the span of the statement
+    # that contains it. Built once per file with one AST walk.
+    def self.statement_spans(ast)
+      map = {}
+      stack = [[ast, nil]]
+      until stack.empty?
+        node, statement = stack.pop
+        span = [node.location.start_offset, node.location.end_offset]
+        map[span] ||= statement || span
+        if node.is_a?(Prism::StatementsNode)
+          node.compact_child_nodes.each do |child|
+            stack.push([child, [child.location.start_offset, child.location.end_offset]])
+          end
+        else
+          node.compact_child_nodes.each { |child| stack.push([child, statement]) }
+        end
+      end
+      map
+    end
+
     def line_of(offset)
       @line_starts.bsearch_index { |start| start > offset } || @line_starts.length
     end
