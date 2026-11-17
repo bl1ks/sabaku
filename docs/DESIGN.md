@@ -40,6 +40,7 @@ Config.default(**overrides) -> Config
 
 # lib/mutation/source.rb
 Source.new(rel_path, text)
+  #rel_path    -> String, path relative to the project root
   #text        -> String (frozen)
   #ast         -> Prism::Node (root, parsed once)
   #line_of(offset) -> Integer

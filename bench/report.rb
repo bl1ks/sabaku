@@ -231,9 +231,10 @@ module BenchReport
                     campaign["score"])
       end
       if campaign["per_mutant_wall_ms"]
+        metric = campaign["p50_metric"].to_s.tr("_", " ")
         puts format("basis: %s, %.1f ms/mutant end-to-end, p50 %.1f ms (%s)",
                     campaign["wall_s_basis"], campaign["per_mutant_wall_ms"],
-                    campaign["mutant_p50_ms"], campaign["p50_metric"])
+                    campaign["mutant_p50_ms"], metric)
       end
       modes = campaign["modes"]
       unless modes.is_a?(Array) && !modes.empty?
@@ -251,7 +252,7 @@ module BenchReport
         mutants = mode["mutants"] || mode["mutants_per_rep"]
         per_mutant = mode["per_mutant_wall_ms"]
         per_mutant ||= wall && mutants ? wall * 1000.0 / mutants : nil
-        metric = mode["p50_metric"] || (mode["id"] == "engine" ? "child duration" : "whole-leg wall")
+        metric = (mode["p50_metric"] || (mode["id"] == "engine" ? "child_duration" : "whole_leg_wall")).tr("_", " ")
         p50 = mode["mutant_p50_ms"]
         p95 = mode["mutant_p95_ms"]
         puts "| #{mode["id"]} | #{wall ? format("%.2f", wall) : "-"} | #{range} | " \

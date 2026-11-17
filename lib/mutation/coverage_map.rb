@@ -73,6 +73,23 @@ module Mutation
       []
     end
 
+    # Tests that execute any line of [first_line, last_line].
+    #
+    # Ruby's line coverage marks only some lines of a multi-line expression: a
+    # `a && b && c` chain spread over five lines is reported as its first and last
+    # line, not the three in between. Asking for the mutated node's whole span keeps
+    # a mutant on an interior line from being misreported as uncovered and dropped
+    # from the score.
+    def tests_for_span(path, first_line, last_line)
+      first = Integer(first_line)
+      last = Integer(last_line)
+      return tests_for(path, first) if last <= first
+
+      (first..last).flat_map { |line| tests_for(path, line) }.uniq.sort
+    rescue ArgumentError, TypeError
+      []
+    end
+
     # Non-destructive union with another CoverageMap.
     def merge(other)
       unless other.is_a?(CoverageMap)

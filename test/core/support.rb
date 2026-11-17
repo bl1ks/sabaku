@@ -21,7 +21,7 @@ module CoreTestSupport
     Mutation::Mutant.new(
       path: source.rel_path,
       operator: operator.id,
-      line: location.start_line,
+      line: replacement.line || location.start_line,
       column: location.start_column,
       node_kind: node.class.name.split("::").last,
       original: replacement.original,

@@ -807,11 +807,13 @@ module Campaign
     def print_mode_row(summary)
       range = format("%.2f..%.2f", summary["wall_min_s"], summary["wall_max_s"])
       per_mutant = summary["per_mutant_wall_ms"] ? format("%.1f", summary["per_mutant_wall_ms"]) : "-"
-      metric = summary["p50_metric"] || "-"
-      p50_range = summary["mutant_p50_range_ms"]
+      metric = case summary["p50_metric"]
+               when "whole_leg_wall" then "whole-leg wall"
+               when "child_duration" then "child duration"
+               else summary["p50_metric"] || "-"
+               end
       p50_value = summary["mutant_p50_ms"]
       p50_text = p50_value ? format("%.1f", p50_value) : "-"
-      p50_text += " [%.1f..%.1f]" % p50_range if p50_range
       p95_text = summary["mutant_p95_ms"] ? format("%.1f", summary["mutant_p95_ms"]) : "-"
       puts format("%-24s %12.2f %17s %16s %18s %12s %12s %10d",
                   summary["id"], summary["wall_s"], range, per_mutant,
@@ -830,7 +832,10 @@ module Campaign
     options = {
       mutants: DEFAULT_MUTANTS,
       reps: DEFAULT_REPS,
-      seed: 1234,
+      # Engine CLI default. A non-zero seed can pick a different operator per
+      # line and therefore a different mutant set; the harness should report the
+      # engine's default campaign unless the user explicitly asks otherwise.
+      seed: 0,
       skip_engine: false,
       engine_timeout: ENGINE_TIMEOUT_S,
       out: OUT_PATH

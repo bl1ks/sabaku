@@ -112,9 +112,10 @@ module Mutation
       end
 
       # A target that was loaded before Coverage.start has no counters at all
-      # (it is absent from peek_result). Re-load it under coverage once. In the
-      # normal CLI path this is a no-op: preload! loaded the file while Coverage
-      # was already running.
+      # (it is absent from peek_result). Re-load it under coverage once. This
+      # only applies to files already in $LOADED_FEATURES: a source the tests
+      # never load must stay unloaded (its mutants are legitimately uncovered,
+      # and loading it here could run side effects).
       def ensure_targets_instrumented!(targets)
         current = snapshot
         reloaded = {}
@@ -122,6 +123,7 @@ module Mutation
           next if current.key?(absolute)
           next if reloaded[relative]
           next unless File.file?(absolute)
+          next unless loaded_feature?(absolute)
 
           begin
             quietly { load absolute }
@@ -130,6 +132,16 @@ module Mutation
             raise Mutation::Error,
                   "failed to reload #{relative} for coverage: #{e.class}: #{e.message}"
           end
+        end
+      end
+
+      def loaded_feature?(absolute)
+        return true if $LOADED_FEATURES.include?(absolute)
+
+        begin
+          $LOADED_FEATURES.include?(File.realpath(absolute))
+        rescue SystemCallError
+          false
         end
       end
 

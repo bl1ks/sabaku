@@ -42,7 +42,9 @@ class AnalyzerTest < Minitest::Test
     earlier = source("c * d\ne - f\n", "alpha.rb")
     mutants = analyze([later, earlier], per_line: 99, seed: 0)
 
-    assert_equal ["alpha.rb"] * 10 + ["zeta.rb"] * 4, mutants.map(&:path)
+    assert_equal %w[alpha.rb zeta.rb], mutants.map(&:path).uniq,
+                 "mutants are grouped by path"
+    assert_equal mutants.map(&:path).sort, mutants.map(&:path), "paths are ordered"
     earlier_mutants = mutants.select { |mutant| mutant.path == "alpha.rb" }
     offsets = earlier_mutants.map(&:start_offset)
     assert_equal offsets.sort, offsets

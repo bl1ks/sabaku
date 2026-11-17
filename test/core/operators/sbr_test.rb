@@ -38,13 +38,14 @@ class SbrTest < Minitest::Test
     assert_mutants_parse(built, mutants)
   end
 
-  def test_top_level_statements_are_removable
+  def test_file_body_is_not_a_removable_block
+    # Deleting a top-level statement removes the library's entry point (a require, a class
+    # definition), not a behaviour inside one. Those mutants either fail to load or survive
+    # for a reason no reader can act on, so the file body is out of SBR's scope.
     text = "a = 1\nb = 2\n"
     built = source(text)
-    mutants = mutants_for(built, :sbr)
 
-    assert_equal ["b = 2\n", "a = 1\n"], mutants.map { |mutant| mutant.splice(text) }
-    assert_mutants_parse(built, mutants)
+    assert_empty mutants_for(built, :sbr)
   end
 
   def test_inline_statement_lists_reparse
@@ -58,12 +59,22 @@ class SbrTest < Minitest::Test
     assert_mutants_parse(built, mutants)
   end
 
-  def test_class_bodies_remove_non_arid_statements
+  def test_declaration_bodies_are_not_removable
+    # A mutation is applied by re-evaluating the file. Re-evaluation redefines a method but
+    # never undefines one, so deleting a `def` from a class body cannot change behaviour: the
+    # mutant would always survive and teach the reader nothing.
     text = "class Foo\n  def one\n    1\n  end\n\n  def two\n    2\n  end\nend\n"
+
+    assert_empty mutants_for(source(text), :sbr)
+  end
+
+  def test_method_bodies_still_remove_statements
+    text = "def total\n  a = 1\n  b = 2\n  a + b\nend\n"
     built = source(text)
     mutants = mutants_for(built, :sbr)
 
-    assert_equal 2, mutants.size
+    assert_equal 2, mutants.size, "both non-final statements are removable"
+    assert_equal [2, 3], mutants.map(&:line), "each mutant is reported on the line it removes"
     assert_mutants_parse(built, mutants)
   end
 

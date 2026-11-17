@@ -44,14 +44,16 @@ module Mutation
 
         @classes = discover_test_classes(@test_files)
         @id_to_pair = {}
-        @test_ids = @classes.flat_map { |klass| test_methods_for(klass).map { |m| "#{klass.name}##{m}" } }
+        @test_ids = []
+        @classes.each do |klass|
+          test_methods_for(klass).each do |method_name|
+            id = "#{klass.name}##{method_name}"
+            @test_ids << id
+            @id_to_pair[id] = [klass, method_name]
+          end
+        end
         @test_ids.sort!
         @test_ids.uniq!
-        @test_ids.each do |id|
-          class_name, _, method_name = id.partition("#")
-          klass = @classes.find { |candidate| candidate.name == class_name }
-          @id_to_pair[id] = [klass, method_name] if klass
-        end
 
         # A preloaded minitest project must not leak its test classes into the
         # embedding process: minitest/autorun installs an at_exit hook which

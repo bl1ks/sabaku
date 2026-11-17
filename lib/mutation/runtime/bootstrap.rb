@@ -82,10 +82,14 @@ module Mutation
 
       # The one load-bearing trick: re-execute the spliced file, then hide the
       # original from `require` so the test files cannot undo the mutation.
+      #
+      # eval with the original absolute path, not load of the temp file: a file that
+      # uses require_relative or __FILE__ must see the path it is used to, or a
+      # mutation of the library's own source breaks on `require_relative "sibling"`.
       def load_mutated_target(target_path, mutated_file, root)
         absolute = File.expand_path(target_path.to_s, root)
         # Constant redefinitions are expected when a file is re-executed.
-        quietly { load File.expand_path(mutated_file) }
+        quietly { TOPLEVEL_BINDING.eval(File.read(mutated_file), absolute, 1) }
 
         features = [absolute]
         begin

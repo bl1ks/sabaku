@@ -10,6 +10,7 @@ require_relative "cache"
 require_relative "coverage_map"
 require_relative "errors"
 require_relative "result"
+require_relative "source"
 
 module Mutation
   # Turns candidate mutants into Results, following the lifecycle in
@@ -51,6 +52,7 @@ module Mutation
       @coverage_enabled = config.respond_to?(:coverage) ? config.coverage : true
       @cache = Cache.new(Cache.default_path(config), enabled: !Cache.disabled?)
       @source_cache = {}
+      @statement_spans = {}
       @all_test_ids = nil
       @temp_dir = nil
     end
@@ -72,7 +74,8 @@ module Mutation
     # ---- preparation: selection + cache -------------------------------------
 
     def prepare_entry(mutant, index)
-      selected = selected_test_ids(mutant)
+      source = source_for(mutant.path)
+      selected = selected_test_ids(mutant, source)
       if selected.empty?
         message = if @coverage_enabled
                     "no covering test for #{mutant.path}:#{mutant.line}"
@@ -87,8 +90,7 @@ module Mutation
         )
       end
 
-      source = source_for(mutant.path)
-      mutated = mutant.splice(source)
+      mutated = mutant.splice(source.text)
       key = cache_key(mutant, mutated, selected)
 
       if (hit = @cache.fetch(key))
@@ -108,7 +110,7 @@ module Mutation
       end
 
       Entry.new(index: index, mutant: mutant, selected_ids: selected,
-                source_text: source, cache_key: key)
+                source_text: source.text, cache_key: key)
     rescue StandardError => e
       Entry.new(
         index: index,
@@ -123,19 +125,58 @@ module Mutation
       )
     end
 
-    def selected_test_ids(mutant)
-      if @coverage_enabled
-        @coverage_map.tests_for(mutant.path, mutant.line)
-      else
+    def selected_test_ids(mutant, source)
+      unless @coverage_enabled
         # Without coverage we cannot tell which tests cover the line, so the
         # state machine says run all of them.
-        all_test_ids
+        return all_test_ids
       end
+
+      tests = @coverage_map.tests_for_span(mutant.path, mutant.line,
+                                           source.line_of(mutant.end_offset - 1))
+      return tests unless tests.empty?
+
+      # Ruby's line coverage is coarse inside one expression: a five-line `a && b && c`
+      # chain is reported as its first and last line only. Fall back to the statement the
+      # mutant belongs to, or a mutant in a multi-line expression is silently dropped from
+      # the score as uncovered.
+      span = statement_span(source, mutant)
+      return [] if span.nil?
+
+      @coverage_map.tests_for_span(mutant.path, source.line_of(span[0]),
+                                   source.line_of(span[1] - 1))
     end
 
+    # Maps [start_offset, end_offset] of every node to the span of the statement that
+    # contains it. Built once per file with one AST walk.
+    def statement_span(source, mutant)
+      spans = (@statement_spans[source.rel_path] ||= build_statement_spans(source))
+      spans[[mutant.start_offset, mutant.end_offset]]
+    end
+
+    def build_statement_spans(source)
+      map = {}
+      stack = [[source.ast, nil]]
+      until stack.empty?
+        node, statement = stack.pop
+        span = [node.location.start_offset, node.location.end_offset]
+        map[span] ||= statement || span
+        if node.is_a?(Prism::StatementsNode)
+          node.compact_child_nodes.each do |child|
+            stack.push([child, [child.location.start_offset, child.location.end_offset]])
+          end
+        else
+          node.compact_child_nodes.each { |child| stack.push([child, statement]) }
+        end
+      end
+      map
+    end
+
+    # Memoised per file: the parse is 50us and a campaign asks for the same file once
+    # per mutant, so every mutant of a file shares one Source.
     def source_for(path)
       absolute = File.expand_path(path.to_s)
-      @source_cache[absolute] ||= File.read(absolute)
+      @source_cache[absolute] ||= Source.new(path.to_s, File.read(absolute))
     end
 
     def cache_key(mutant, mutated_source, selected)
@@ -229,18 +270,17 @@ module Mutation
     # ---- fork isolation -----------------------------------------------------
 
     def start_fork_job(entry)
-      path = temp_file_for(entry)
       reader, writer = IO.pipe
       started = clock
 
       pid = fork do
         reader.close
-        fork_child(entry, path, writer)
+        fork_child(entry, writer)
       end
 
       writer.close
       Job.new(pid: pid, reader: reader, started_at: started,
-              deadline: started + @timeout, entry: entry, temp_path: path, pgroup: false)
+              deadline: started + @timeout, entry: entry, pgroup: false)
     rescue StandardError => e
       begin
         writer.close if defined?(writer) && writer && !writer.closed?
@@ -256,13 +296,14 @@ module Mutation
       nil
     end
 
-    def fork_child(entry, path, writer)
+    def fork_child(entry, writer)
       begin
-        source = File.read(File.expand_path(entry.mutant.path.to_s))
-        File.write(path, entry.mutant.splice(source))
-        # Re-executing a file necessarily redefines its constants; that warning
-        # is noise in a campaign, not a mutation result.
-        quietly { load path }
+        absolute = File.expand_path(entry.mutant.path.to_s)
+        source = entry.source_text || File.read(absolute)
+        # eval with the original path rather than load of a temp copy: require_relative
+        # and __FILE__ must resolve as they do in the real file, and skipping the write
+        # keeps the per-mutant cost to a fork plus one parse.
+        quietly { TOPLEVEL_BINDING.eval(entry.mutant.splice(source), absolute, 1) }
       rescue Exception => e # rubocop:disable Lint/RescueException
         write_payload(writer, "boot_error" => true, "error" => describe_exception(e))
         exit!(2)

@@ -85,7 +85,7 @@ module Mutation
       out = +"survivors:\n"
       survivors.first(50).each do |result|
         mutant = result.mutant
-        out << format("  %s:%d  %s\n", mutant.path, mutant.line, mutant.description)
+        out << format("  %s:%d  %s\n", mutant.path, mutant.line, one_line(mutant))
       end
       out << format("  ... and %d more\n", survivors.size - 50) if survivors.size > 50
       out << "\n"
@@ -101,6 +101,15 @@ module Mutation
                       file[:path], file[:killed], file[:counted], file[:rate] * 100)
       end
       out
+    end
+
+    # A statement-block mutant carries a whole class body in its original text, so the
+    # terminal gets the first line and the size, never a wall of source.
+    def one_line(mutant, limit: 72)
+      text = mutant.description.gsub(/\s+/, " ").strip
+      text = "#{mutant.operator.to_s.upcase}: #{mutant.original.lines.first.strip} ... " \
+             "(one statement of a #{mutant.original.lines.size}-line block)" if mutant.original.include?("\n")
+      text.length > limit ? "#{text[0, limit - 1]}..." : text
     end
 
     def to_h

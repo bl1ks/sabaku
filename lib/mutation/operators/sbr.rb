@@ -29,12 +29,26 @@ module Mutation
         end.map do |index|
           Replacement.new(
             original: original,
-            replacement: rebuild(statements, index, node, source)
+            replacement: rebuild(statements, index, node, source),
+            line: statements[index].location.start_line
           )
         end
       end
 
+      # Containers whose statements declare names rather than run behaviour. A mutant that
+      # deletes a `def` there is unkillable by construction: the runner applies a mutation by
+      # re-evaluating the file, and re-evaluating a class body redefines methods but never
+      # undefines one, so the deleted definition is still there when the tests run.
+      DECLARATION_CONTAINERS = [
+        Prism::ProgramNode,
+        Prism::ClassNode,
+        Prism::ModuleNode,
+        Prism::SingletonClassNode
+      ].freeze
+
       def self.removable_indices(parent, statements)
+        return [] if DECLARATION_CONTAINERS.any? { |klass| parent.is_a?(klass) }
+
         indices = (0...statements.length).to_a
         indices = indices[0...-1] if parent.is_a?(Prism::DefNode)
         indices
