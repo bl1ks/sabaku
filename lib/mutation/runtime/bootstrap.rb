@@ -40,6 +40,7 @@ module Mutation
         begin
           root = File.expand_path(ENV.fetch("RUBY_MUTATION_ROOT", Dir.pwd))
           Dir.chdir(root)
+          index = Integer(ENV.fetch("RUBY_MUTATION_CHILD_INDEX", "0"))
           adapter_name = ENV.fetch("RUBY_MUTATION_ADAPTER", "minitest")
           target_path = ENV.fetch("RUBY_MUTATION_MUTANT_PATH")
           mutated_file = ENV.fetch("RUBY_MUTATION_MUTATED_FILE")
@@ -47,8 +48,14 @@ module Mutation
 
           @adapter = build_adapter(adapter_name)
           prepare_load_path(root)
+          @setup = load_setup
+          apply_env
+          apply_requires
+          fire(:child_start, index)
           load_mutated_target(target_path, mutated_file, root)
           @adapter.preload!
+          fire(:after_boot)
+          fire(:before_test_run)
           outcome = @adapter.run(test_ids)
 
           emit(payload,
@@ -100,6 +107,37 @@ module Mutation
         features.each do |feature|
           $LOADED_FEATURES << feature unless $LOADED_FEATURES.include?(feature)
         end
+      end
+
+      # A process-isolated child starts from a bare Ruby: every hook the fork
+      # path got from the parent has to be replayed here, in the same order.
+      def load_setup
+        path = ENV.fetch("RUBY_MUTATION_SETUP", "")
+        return nil if path.empty?
+
+        require "mutation/setup"
+        Mutation.setup(path)
+      end
+
+      # Project ENV first, then the setup file's entries, so a setup file wins.
+      def apply_env
+        JSON.parse(ENV.fetch("RUBY_MUTATION_ENV", "{}")).each { |key, value| ENV[key] = value }
+        @setup&.env_vars&.each { |key, value| ENV[key] = value }
+      rescue JSON::ParserError
+        raise Mutation::Error, "RUBY_MUTATION_ENV is not valid JSON"
+      end
+
+      def apply_requires
+        JSON.parse(ENV.fetch("RUBY_MUTATION_REQUIRES", "[]")).each do |path|
+          expanded = File.expand_path(path)
+          require(File.exist?(expanded) ? expanded : path)
+        end
+      rescue JSON::ParserError
+        raise Mutation::Error, "RUBY_MUTATION_REQUIRES is not valid JSON"
+      end
+
+      def fire(event, *args)
+        @setup&.fire(event, *args)
       end
 
       def quietly

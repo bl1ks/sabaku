@@ -1,0 +1,63 @@
+# frozen_string_literal: true
+
+require_relative "../test_helper"
+require "tmpdir"
+
+class SetupTest < Minitest::Test
+  def with_setup_file(body)
+    Dir.mktmpdir("ruby-mutation-setup") do |dir|
+      path = File.join(dir, "mutation.rb")
+      File.write(path, body)
+      yield path
+    end
+  end
+
+  def test_setup_file_records_env_paths_and_hooks_in_order
+    with_setup_file(<<~RUBY) do |path|
+      env "APP_MODE" => "test"
+      require_path "./config/environment"
+      after_boot { $setup_order << :after_boot }
+      child_start { |index| $setup_order << [:child_start, index] }
+    RUBY
+      setup = Mutation.setup(path)
+
+      assert_equal({ "APP_MODE" => "test" }, setup.env_vars)
+      assert_equal ["./config/environment"], setup.require_paths
+      refute setup.empty?
+
+      $setup_order = []
+      setup.fire(:child_start, 2)
+      setup.fire(:after_boot)
+      assert_equal [[:child_start, 2], :after_boot], $setup_order
+    end
+  end
+
+  def test_block_form_is_the_same_value
+    setup = Mutation.setup do
+      env("LANG" => "C")
+      before_fork { :noop }
+    end
+
+    assert_equal({ "LANG" => "C" }, setup.env_vars)
+    assert_equal 1, setup.hooks[:before_fork].size
+  end
+
+  def test_a_hook_without_a_block_is_rejected
+    assert_raises(ArgumentError) { Mutation::Setup.new.after_boot }
+  end
+
+  def test_boot_applies_env_before_anything_loads
+    config = Mutation::Config.default(env: { "MUTATION_BOOT_TEST" => "on" })
+    previous = ENV["MUTATION_BOOT_TEST"]
+
+    Mutation::Boot.env(config)
+    assert_equal "on", ENV["MUTATION_BOOT_TEST"]
+  ensure
+    ENV["MUTATION_BOOT_TEST"] = previous
+    ENV.delete("MUTATION_BOOT_TEST") if previous.nil?
+  end
+
+  def test_a_setup_without_hooks_is_empty
+    assert Mutation::Setup.new.empty?
+  end
+end

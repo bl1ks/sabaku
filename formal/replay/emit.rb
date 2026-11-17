@@ -23,7 +23,7 @@ SOURCES = [
 
 CONFIG = Mutation::Config.default(
   paths: SOURCES,
-  operators: %i[aor ror lcr sbr uoi bool str],
+  operators: Mutation::Operator::Registry.ids,
   seed: 0,
   per_line: 2
 )

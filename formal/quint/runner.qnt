@@ -25,6 +25,9 @@ module runner {
   pure val FAULT_run_uncovered = false
   pure val FAULT_early_report = false
   pure val FAULT_ignore_capacity = false
+  /// `--fail-fast` ignored: children keep starting after the first survivor, and the
+  /// remaining queue is skipped without a survivor.
+  pure val FAULT_ignore_fail_fast = false
 
   pure def faultOr(f: bool, guard: bool): bool = f or guard
 
@@ -36,6 +39,8 @@ module runner {
   var writes: int -> int
   /// Whether a child was started for the mutant, so `uncovered` can be checked against it.
   var childRan: int -> bool
+  /// Whether `--fail-fast` has stopped scheduling.
+  var halted: bool
   /// Whether the report has been emitted.
   var reported: bool
 
@@ -56,6 +61,7 @@ module runner {
     result' = Map(0 -> "", 1 -> "", 2 -> ""),
     writes' = Map(0 -> 0, 1 -> 0, 2 -> 0),
     childRan' = Map(0 -> false, 1 -> false, 2 -> false),
+    halted' = false,
     reported' = false,
   }
 
@@ -68,6 +74,7 @@ module runner {
       result' = result.set(i, "uncovered"),
       writes' = writes.set(i, writes.get(i) + 1),
       childRan' = childRan,
+      halted' = halted,
       reported' = reported,
     }
   }
@@ -80,6 +87,7 @@ module runner {
       result' = result,
       writes' = writes,
       childRan' = childRan,
+      halted' = halted,
       reported' = reported,
     }
   }
@@ -89,11 +97,13 @@ module runner {
     nondet i = oneOf(Mutants)
     all {
       faultOr(FAULT_ignore_capacity, runningCount < W),
+      faultOr(FAULT_ignore_fail_fast, not(halted)),
       faultOr(FAULT_run_uncovered, phase.get(i) == "queued"),
       phase' = phase.set(i, "running"),
       result' = result,
       writes' = writes,
       childRan' = childRan.set(i, true),
+      halted' = halted,
       reported' = reported,
     }
   }
@@ -108,6 +118,7 @@ module runner {
       result' = result.set(i, o),
       writes' = writes.set(i, writes.get(i) + 1),
       childRan' = childRan,
+      halted' = halted,
       reported' = reported,
     }
   }
@@ -121,6 +132,7 @@ module runner {
       result' = result.set(i, "error"),
       writes' = writes.set(i, writes.get(i) + 1),
       childRan' = childRan,
+      halted' = halted,
       reported' = reported,
     }
   }
@@ -134,6 +146,34 @@ module runner {
       result' = result.set(i, "timeout"),
       writes' = writes.set(i, writes.get(i) + 1),
       childRan' = childRan,
+      halted' = halted,
+      reported' = reported,
+    }
+  }
+
+  /// `halt_fast_fail`: the first survivor stops new work.
+  action halt = all {
+    not(halted),
+    countStatus("survived") > 0,
+    phase' = phase,
+    result' = result,
+    writes' = writes,
+    childRan' = childRan,
+    halted' = true,
+    reported' = reported,
+  }
+
+  /// `mark_skipped`: a mutant that was queued when the run halted is reported as skipped.
+  action markSkipped = {
+    nondet i = oneOf(Mutants)
+    all {
+      faultOr(FAULT_ignore_fail_fast, halted),
+      phase.get(i) == "queued",
+      phase' = phase.set(i, "done"),
+      result' = result.set(i, "skipped"),
+      writes' = writes.set(i, writes.get(i) + 1),
+      childRan' = childRan,
+      halted' = halted,
       reported' = reported,
     }
   }
@@ -145,6 +185,7 @@ module runner {
     result' = result,
     writes' = writes,
     childRan' = childRan,
+    halted' = halted,
     reported' = true,
   }
 
@@ -155,6 +196,8 @@ module runner {
     finishChild,
     failChild,
     timeoutChild,
+    halt,
+    markSkipped,
     finalize,
   }
 
@@ -186,4 +229,13 @@ module runner {
 
   /// Timeouts are counted, so the denominator covers every scored outcome.
   val INV_denominator_covers_timeouts = den >= countStatus("timeout")
+
+  /// A skipped mutant was never started: `mark_skipped` only touches the queue.
+  val INV_skipped_has_no_child =
+    Mutants.forall(i => result.get(i) == "skipped" implies not(childRan.get(i)))
+
+  /// Skipping is only allowed after a survivor stopped the run, so `--fail-fast` can never
+  /// hide work that would have found a kill.
+  val INV_skip_only_after_survivor =
+    countStatus("skipped") > 0 implies countStatus("survived") > 0
 }

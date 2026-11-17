@@ -68,6 +68,9 @@ module Mutation
         applicable.each do |operator|
           operator.mutations(node, source).each do |replacement|
             verify!(operator, replacement, actual, source, node)
+            # A rewrite that changes no bytes always survives and would score as
+            # a test gap. Operators should not emit one; this is the net.
+            next if replacement.replacement == actual
             line = replacement.line || node.location.start_line
             next unless diff_covers?(source, line)
 

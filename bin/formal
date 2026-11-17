@@ -21,7 +21,8 @@ done
 
 invariants=(INV_one_result INV_done_has_result INV_uncovered_has_no_child INV_capacity
             INV_report_complete INV_report_has_every_result INV_score_bound
-            INV_denominator_covers_timeouts)
+            INV_denominator_covers_timeouts INV_skipped_has_no_child
+            INV_skip_only_after_survivor)
 
 echo "== lean: build and prove =="
 (cd formal/lean && lake build)

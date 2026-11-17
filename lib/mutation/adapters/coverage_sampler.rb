@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../boot"
 require_relative "../coverage_map"
 require_relative "../source"
 
@@ -29,6 +30,7 @@ module Mutation
       # -> CoverageMap
       def call
         require "coverage"
+        Boot.env(@config)
 
         targets = target_files
         @wanted_lines = @mutants && wanted_lines
@@ -44,7 +46,11 @@ module Mutation
           started_here = true
         end
 
+        # The application has to boot under coverage, or its files are compiled
+        # before counters exist and report no hits. `--require` is the seam.
+        Boot.require_paths(@config)
         @adapter.preload!
+        Boot.fire(@config, :after_boot)
         # In an embedded process another adapter may already have required the
         # mutated files before we started Coverage; Ruby only instruments files
         # when they are compiled, so those files would silently report no hits.
@@ -53,25 +59,48 @@ module Mutation
         previous = snapshot
         map = CoverageMap.empty
 
+        failures = []
         @adapter.test_ids.each do |test_id|
-          begin
+          outcome = begin
             @adapter.run([test_id])
-          rescue StandardError
-            # A failing test still has valid coverage; keep sampling the rest.
-            nil
+          rescue StandardError => e
+            Adapter::Outcome.new(ok: false, failed_id: test_id, error: e)
           end
+          # A failing test still has valid coverage; keep sampling so the report
+          # can name every test that has to be fixed.
+          failures << [test_id, outcome] unless outcome.ok?
           current = snapshot
           hits = diff_hits(previous, current, targets)
           map.record(test_id, hits) unless hits.empty?
           previous = current
         end
 
+        verify_baseline!(failures)
         map
       ensure
         ::Coverage.result if started_here && ::Coverage.running?
       end
 
       private
+
+      # The neutral mutation, without a second suite run: the coverage pass has
+      # already executed every test once. A test that fails with no mutation
+      # applied kills every mutant it covers, so the score would be a lie.
+      def verify_baseline!(failures)
+        return if failures.empty?
+        return unless @config.respond_to?(:baseline) && @config.baseline
+
+        total = @adapter.test_ids.size
+        shown = failures.first(10).map do |test_id, outcome|
+          detail = outcome.error ? "#{outcome.error.class}: #{outcome.error.message}" : "assertion failed"
+          "#{test_id} (#{detail})"
+        end
+        more = failures.size > shown.size ? " and #{failures.size - shown.size} more" : ""
+        raise BaselineError,
+              "#{failures.size} of #{total} tests fail with no mutation applied: " \
+              "#{shown.join(", ")}#{more}. Every mutant those tests cover would be reported " \
+              "as killed. Fix the suite, or pass --no-baseline to score it anyway."
+      end
 
       # absolute path => repo-relative path from the Source objects.
       def target_files

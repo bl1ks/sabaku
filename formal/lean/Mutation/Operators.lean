@@ -189,4 +189,46 @@ theorem bool_flip_involution (b : Lit) : Lit.flip (Lit.flip b) = b := by
 theorem str_replacement_ne (s : List UInt8) (h : s ≠ []) : ([] : List UInt8) ≠ s :=
   fun e => h e.symm
 
+/-- `Assign::NODES`' operator tokens. The replacement is the plain `=`. -/
+def assignTokens : List String :=
+  ["+=", "-=", "*=", "/=", "%=", "**=", "||=", "&&=", "|=", "&=", "^=", "<<=", ">>="]
+
+theorem assign_eq_not_mem : ("=" : String) ∉ assignTokens := by decide
+
+theorem assign_no_identity (t : String) (h : t ∈ assignTokens) : ("=" : String) ≠ t := by
+  intro he
+  exact assign_eq_not_mem (he ▸ h)
+
+/-- `Cond.mutations`: the predicate text becomes `true` and `false`, and the analyzer drops an
+    identity rewrite (`if true` would otherwise mutate to itself). -/
+def condImage (predicate : String) : List String := ["true", "false"].filter (· ≠ predicate)
+
+theorem cond_no_identity (p : String) : p ∉ condImage p := by
+  simp [condImage]
+
+theorem cond_length (p : String) (ht : p ≠ "true") (hf : p ≠ "false") :
+    (condImage p).length = 2 := by
+  simp [condImage, Ne.symm ht, Ne.symm hf]
+
+/-- `Literal.integer_mutations`: both neighbours, and neither is the original. -/
+def intImage (n : Int) : List Int := [n + 1, n - 1]
+
+theorem int_no_identity (n : Int) : n ∉ intImage n := by
+  simp [intImage]
+  omega
+
+theorem int_length (n : Int) : (intImage n).length = 2 := by
+  simp [intImage]
+
+/-- `Analyzer#walk`: a candidate whose replacement text equals the source slice it replaces is
+    dropped before it becomes a mutant. This is the guard that keeps `selector`, `call`, `cond`,
+    and `literal` from emitting an unkillable no-op when a rewrite happens to reproduce its
+    input, and it is modelled as part of emission rather than as a property of each table. -/
+def emitted (original : String) (image : List String) : List String :=
+  image.filter (· ≠ original)
+
+theorem emitted_no_identity (original : String) (image : List String) :
+    original ∉ emitted original image := by
+  simp [emitted]
+
 end Mutation.Operator

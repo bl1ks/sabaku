@@ -168,4 +168,55 @@ class RunnerTest < Minitest::Test
       assert_operator second.map(&:duration).min, :>, 0
     end
   end
+
+  def test_fail_fast_stops_after_the_first_survivor
+    in_project("tiny_minitest", glob: "test/*_case.rb") do |root|
+      mutants = build_tiny_mutants(root)
+      mutants << build_mutant(root: root, line: 9, original: '"calculator"',
+                              replacement: '"other"', operator: :str,
+                              node_kind: "StringNode")
+      config = tiny_config(fail_fast: true, jobs: 1)
+      adapter = Mutation::Adapter.for(:minitest, config)
+      results = Mutation::Runner.new(config, analyzer: nil, adapter: adapter,
+                                     coverage_map: tiny_coverage_map).call(mutants)
+
+      assert_equal %i[killed survived uncovered skipped], results.map(&:status)
+      assert_equal 0.0, results.last.duration
+      assert_match(/--fail-fast/, results.last.message)
+    end
+  end
+
+  def test_hooks_run_in_the_documented_order
+    log = File.join(@tmpdir, "hooks.log")
+    setup_path = File.join(@tmpdir, "mutation.rb")
+    File.write(setup_path, <<~RUBY)
+      env "MUTATION_HOOK_TEST" => "on"
+      after_boot { Mutation::RunnerTestHooks.record(#{log.inspect}, "after_boot") }
+      before_fork { Mutation::RunnerTestHooks.record(#{log.inspect}, "before_fork") }
+      child_start { |index| Mutation::RunnerTestHooks.record(#{log.inspect}, "child_start:\#{index}") }
+      before_test_run { Mutation::RunnerTestHooks.record(#{log.inspect}, "before_test_run") }
+    RUBY
+
+    in_project("tiny_minitest", glob: "test/*_case.rb") do
+      config = tiny_config(setup: Mutation.setup(setup_path), setup_path: setup_path,
+                           env: { "MUTATION_HOOK_TEST" => "on" })
+      adapter = Mutation::Adapter.for(:minitest, config)
+      Mutation::Runner.new(config, analyzer: nil, adapter: adapter,
+                           coverage_map: tiny_coverage_map).call(build_tiny_mutants(Dir.pwd))
+    end
+
+    lines = File.readlines(log, chomp: true)
+    assert_equal %w[after_boot before_fork], lines.first(2)
+    assert_equal %w[child_start:0 before_test_run child_start:1 before_test_run],
+                 lines.drop(2)
+  end
+end
+
+# A plain module the setup file can call from a forked child.
+module Mutation
+  module RunnerTestHooks
+    def self.record(path, line)
+      File.open(path, "a") { |file| file.puts(line) }
+    end
+  end
 end

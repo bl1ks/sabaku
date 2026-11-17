@@ -94,4 +94,33 @@ class CoverageSamplerTest < Minitest::Test
       assert_includes map.tests_for("lib/pricing.rb", 39), SHIPPING_TEST
     end
   end
+
+  def test_a_red_suite_stops_the_campaign_before_it_scores_anything
+    in_project("failing_minitest", glob: "test/*_case.rb") do
+      source = Mutation::Source.new("lib/thing.rb", File.read("lib/thing.rb"))
+      config = config_for
+      adapter = Mutation::Adapter.for(:minitest, config)
+
+      error = assert_raises(Mutation::BaselineError) do
+        Mutation::Adapters::CoverageSampler.new(config, adapter, [source]).call
+      end
+
+      assert_match(/1 of 2 tests fail/, error.message)
+      assert_match(/ThingTest#test_broken/, error.message)
+      assert_match(/--no-baseline/, error.message)
+    end
+  end
+
+  def test_no_baseline_keeps_sampling_a_red_suite
+    in_project("failing_minitest", glob: "test/*_case.rb") do
+      source = Mutation::Source.new("lib/thing.rb", File.read("lib/thing.rb"))
+      config = config_for(baseline: false)
+      adapter = Mutation::Adapter.for(:minitest, config)
+
+      map = Mutation::Adapters::CoverageSampler.new(config, adapter, [source]).call
+
+      assert_includes map.test_ids, "ThingTest#test_broken"
+      assert_includes map.test_ids, "ThingTest#test_value"
+    end
+  end
 end

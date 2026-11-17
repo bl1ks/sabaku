@@ -10,13 +10,21 @@ require_relative "sbr"
 require_relative "uoi"
 require_relative "bool"
 require_relative "str"
+require_relative "literal"
+require_relative "selector"
+require_relative "call"
+require_relative "cond"
+require_relative "assign"
 
 module Mutation
   module Operator
     # The operator catalog. Ids are stable API: configs, caches and reports all store them.
     module Registry
-      OPERATORS = [Aor, Ror, Lcr, Sbr, Uoi, Bool, Str].freeze
-      DEFAULTS = %i[aor ror lcr sbr uoi].freeze
+      OPERATORS = [Aor, Ror, Lcr, Sbr, Uoi, Bool, Str, Literal, Selector, Call, Cond, Assign].freeze
+
+      # Every operator is on by default. Depth, not breadth, is what
+      # --per-line controls, so the candidate pool should be the whole table.
+      DEFAULTS = OPERATORS.map(&:id).freeze
 
       module_function
 

@@ -26,6 +26,21 @@ class CoverageMapTest < Minitest::Test
     assert_equal [], map.tests_for("lib/other.rb", 2)
   end
 
+  def test_ordering_prefers_the_test_that_walks_more_of_the_file
+    map = Mutation::CoverageMap.empty
+    map.record("Narrow#test", { "lib/a.rb" => [2] })
+    map.record("Broad#test", { "lib/a.rb" => [1, 2, 3] })
+    map.record("Medium#test", { "lib/a.rb" => [2, 3] })
+
+    assert_equal %w[Broad#test Medium#test Narrow#test],
+                 map.ordered_tests_for_span("lib/a.rb", 2, 2)
+    assert_equal 3, map.reach("lib/a.rb", "Broad#test")
+    assert_equal 0, map.reach("lib/b.rb", "Broad#test")
+    # The plain query stays sorted by id so callers that do not care about
+    # order are unaffected.
+    assert_equal %w[Broad#test Medium#test Narrow#test], map.tests_for("lib/a.rb", 2)
+  end
+
   def test_recording_the_same_test_twice_unions_hits
     map = Mutation::CoverageMap.empty
     map.record("T#one", { "lib/a.rb" => [1] })

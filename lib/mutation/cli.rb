@@ -59,6 +59,7 @@ module Mutation
       return EXIT_OK unless options
 
       cfg = build_config(options)
+      Boot.env(cfg)
       sources = load_sources(cfg)
       analyzer = Analyzer.new(sources, cfg)
       mutants = analyzer.mutants
@@ -145,12 +146,29 @@ module Mutation
         o.on("--operators=LIST", "comma separated operator ids") do |v|
           options[:operators] = v.split(",").map(&:strip).reject(&:empty?).map(&:to_sym)
         end
-        o.on("--per-line=N", Integer, "mutants kept per line") { |v| options[:per_line] = v }
+        o.on("--per-line=N|all", "mutants kept per line (default 1, all = mutant depth)") do |v|
+          options[:per_line] = v
+        end
         o.on("--diff=PATH", "JSON {path => [lines]} to restrict mutation") do |v|
           raw = JSON.parse(File.read(v))
           options[:diff_ranges] = raw.transform_values do |lines|
             lines.map { |l| Array(l).first..Array(l).last }
           end
+        end
+        o.on("--since=REV", "only mutate lines that changed since REV") { |v| options[:since] = v }
+        o.on("--fail-fast", "stop at the first surviving mutant") { options[:fail_fast] = true }
+        o.on("--[no-]baseline", "abort when the suite is already red") { |v| options[:baseline] = v }
+        o.on("--env=KEY=VALUE", "ENV entry set before the suite loads (repeatable)") do |v|
+          key, value = v.split("=", 2)
+          raise OptionParser::InvalidArgument, "--env needs KEY=VALUE" if value.nil?
+
+          (options[:env] ||= {})[key] = value
+        end
+        o.on("--require=PATH", "require after coverage starts, before the tests (repeatable)") do |v|
+          (options[:requires] ||= []) << v
+        end
+        o.on("--setup=PATH", "Ruby file with boot hooks (env, require_path, after_boot, ...)") do |v|
+          options[:setup_path] = v
         end
         o.on("--[no-]coverage", "select tests by line coverage") { |v| options[:coverage] = v }
         o.on("--isolation=MODE", "fork or process") { |v| options[:isolation] = v.to_sym }
@@ -177,9 +195,18 @@ module Mutation
     end
 
     def build_config(options)
+      overrides = options.dup
+      if (path = overrides.delete(:setup_path))
+        overrides[:setup] = Mutation.setup(path)
+        overrides[:setup_path] = path
+      end
+      if (revision = overrides.delete(:since))
+        changed = Diff.git_ranges(revision)
+        overrides[:diff_ranges] = Diff.intersect(overrides[:diff_ranges], changed)
+      end
       keys = %i[paths exclude operators adapter jobs timeout seed per_line diff_ranges
-                coverage isolation report output]
-      Config.default(**options.slice(*keys))
+                coverage isolation report output env requires setup setup_path fail_fast baseline]
+      Config.default(**overrides.slice(*keys))
     end
 
     def load_sources(cfg)
@@ -215,6 +242,11 @@ module Mutation
       return CoverageMap.empty unless defined?(Adapters::CoverageSampler)
 
       Adapters::CoverageSampler.new(cfg, adapter, sources, mutants: mutants).call
+    rescue BaselineError, BootError
+      # Not a coverage problem: the project has to fix its suite or its setup.
+      # Falling back to running every test would score failing tests as kills,
+      # and a boot hook that did not run would silently change the measurement.
+      raise
     rescue StandardError, LoadError => e
       @err.puts("mutation: coverage collection failed (#{e.class}: #{e.message})")
       nil
@@ -251,8 +283,14 @@ module Mutation
           --jobs=N                   mutants in flight at once
           --timeout=SEC              per-mutant deadline (default 5)
           --operators=aor,ror,...    enabled operators
-          --per-line=N               mutants kept per line (default 1)
+          --per-line=N|all           mutants kept per line (default 1; all = mutant depth)
           --diff=PATH                only mutate the lines in {"path" => [lines]}
+          --since=REV                only mutate lines changed since a git revision
+          --fail-fast                stop at the first surviving mutant
+          --[no-]baseline            abort when the suite is already red (default on)
+          --env=KEY=VALUE            ENV set before the suite loads (repeatable)
+          --require=PATH             require after coverage starts, before the tests
+          --setup=PATH               Ruby file with boot hooks for Rails and friends
           --isolation=fork|process   fork from a preloaded suite, or a fresh process
           --report=terminal|json     output format
           --output=PATH              write the JSON report

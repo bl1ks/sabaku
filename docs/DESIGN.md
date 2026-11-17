@@ -29,12 +29,18 @@ Config = Data.define(
   :jobs,         # Integer >= 1
   :timeout,      # Float seconds per mutant
   :seed,         # Integer, makes operator choice reproducible
-  :per_line,     # Integer, mutants kept per line (paper: 1)
+  :per_line,     # Integer (paper: 1) or Float::INFINITY for `--per-line=all`
   :diff_ranges,  # Hash[String => Array[Range]], nil when mutating whole files
   :coverage,     # Boolean, test selection on/off
   :isolation,    # Symbol, :fork | :process
   :report,       # Symbol, :terminal | :json | :quiet
-  :output        # String path | nil
+  :output,       # String path | nil
+  :env,          # Hash[String => String], set before the suite loads
+  :requires,     # Array[String], required after Coverage.start, before the tests
+  :setup,        # Mutation::Setup | nil, the --setup hooks
+  :setup_path,   # String | nil, the file the setup came from (process isolation)
+  :fail_fast,    # Boolean, stop at the first survivor
+  :baseline      # Boolean, abort when a test fails with no mutation applied
 )
 Config.default(**overrides) -> Config
 
@@ -67,16 +73,17 @@ cache. `splice` never re-parses.
 ```ruby
 # lib/mutation/operators/registry.rb
 # An operator is a module with three methods.
-Operator.id           -> Symbol                 # :aor, :ror, :lcr, :sbr, :uoi, :str, :bool
+Operator.id           -> Symbol                 # see Registry.ids above
 Operator.node_types   -> Array[Class]           # Prism node classes it applies to
 Operator.mutations(node, source) -> Array[Replacement]
 Replacement = Data.define(:original, :replacement)
 # `original` must be `source.slice(node)` exactly; the Analyzer verifies this before emitting
 # a Mutant and raises on mismatch, so a bad operator fails loudly instead of producing a no-op.
 
-Operator::Registry.ids -> Array[Symbol]
+Operator::Registry.ids -> Array[Symbol]         # :aor :ror :lcr :sbr :uoi :bool :str
+                                                # :literal :selector :call :cond :assign
 Operator::Registry.fetch(id) -> Operator
-Operator::Registry.defaults -> Array[Symbol]    # [:aor, :ror, :lcr, :sbr, :uoi]
+Operator::Registry.defaults -> Array[Symbol]    # every id above; depth is --per-line
 ```
 
 ```ruby
@@ -121,7 +128,8 @@ raise for an ordinary test failure, and must never call `exit`.
 # lib/mutation/runner.rb
 Runner.new(config, analyzer:, adapter:, coverage_map:) #call -> Array[Result]
 Result = Data.define(:mutant, :status, :duration, :failed_test, :message)
-# status: :killed | :survived | :timeout | :error | :uncovered
+# status: :killed | :survived | :timeout | :error | :uncovered | :skipped
+# :skipped means --fail-fast stopped before this mutant was scheduled
 ```
 
 Mutant lifecycle, the whole state machine:
@@ -134,6 +142,7 @@ candidate --(covering tests)--> queued --> running --(child exits 0)--> survived
                                                  |--(child exits 1)--> killed
                                                  |--(child killed by signal / deadline)--> timeout
                                                  '--(child exits other / boot error)--> error
+candidate --(--fail-fast saw a survivor first)--> skipped
 ```
 
 `score` = killed / (killed + survived + timeout), reported with `uncovered` and `error` counted

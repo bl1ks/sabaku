@@ -35,7 +35,7 @@ class FixtureMutantsTest < Minitest::Test
     built = pricing
     mutants = mutants_for_fixture(built)
 
-    assert_includes 20..120, mutants.size
+    assert_includes 20..260, mutants.size
     assert_mutants_parse(built, mutants)
   end
 
@@ -52,7 +52,7 @@ class FixtureMutantsTest < Minitest::Test
     built = inventory
     mutants = mutants_for_fixture(built)
 
-    assert_includes 20..120, mutants.size
+    assert_includes 20..260, mutants.size
     assert_mutants_parse(built, mutants)
   end
 

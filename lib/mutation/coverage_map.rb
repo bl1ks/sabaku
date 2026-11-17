@@ -90,6 +90,25 @@ module Mutation
       []
     end
 
+    # How many lines of +path+ the test executes. This is the ordering signal:
+    # a test that walks more of the file is more likely to assert on a mutated
+    # line than a test that brushes one line of it, so it should run first.
+    def reach(path, test_id)
+      lines = @hits[test_id.to_s]
+      return 0 if lines.nil?
+
+      hits = lines[path.to_s]
+      hits ? hits.size : 0
+    end
+
+    # `tests_for_span`, ordered by how much of the file each test exercises,
+    # then by id for stability. The adapter stops at the first failing test, so
+    # this order is what decides how many tests a kill costs.
+    def ordered_tests_for_span(path, first_line, last_line)
+      tests_for_span(path, first_line, last_line)
+        .sort_by { |test_id| [-reach(path, test_id), test_id] }
+    end
+
     # Non-destructive union with another CoverageMap.
     def merge(other)
       unless other.is_a?(CoverageMap)

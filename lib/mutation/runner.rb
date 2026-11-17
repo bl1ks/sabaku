@@ -6,6 +6,7 @@ require "json"
 require "rbconfig"
 require "tmpdir"
 
+require_relative "boot"
 require_relative "cache"
 require_relative "coverage_map"
 require_relative "errors"
@@ -50,6 +51,8 @@ module Mutation
       @timeout = Float(config.respond_to?(:timeout) ? (config.timeout || 5.0) : 5.0)
       @isolation = (config.respond_to?(:isolation) ? config.isolation : :fork).to_sym
       @coverage_enabled = config.respond_to?(:coverage) ? config.coverage : true
+      @fail_fast = config.respond_to?(:fail_fast) ? config.fail_fast : false
+      @halted = false
       @cache = Cache.new(Cache.default_path(config), enabled: !Cache.disabled?)
       @source_cache = {}
       @statement_spans = {}
@@ -59,6 +62,7 @@ module Mutation
 
     # mutants: Array[Mutant] -> Array[Result] in the same order.
     def call(mutants)
+      Boot.env(@config)
       list = Array(mutants)
       @entries = list.each_with_index.map { |mutant, index| prepare_entry(mutant, index) }
       pending = @entries.reject(&:done?)
@@ -132,8 +136,8 @@ module Mutation
         return all_test_ids
       end
 
-      tests = @coverage_map.tests_for_span(mutant.path, mutant.line,
-                                           source.line_of(mutant.end_offset - 1))
+      tests = @coverage_map.ordered_tests_for_span(mutant.path, mutant.line,
+                                                   source.line_of(mutant.end_offset - 1))
       return tests unless tests.empty?
 
       # Ruby's line coverage is coarse inside one expression: a five-line `a && b && c`
@@ -143,8 +147,8 @@ module Mutation
       span = statement_span(source, mutant)
       return [] if span.nil?
 
-      @coverage_map.tests_for_span(mutant.path, source.line_of(span[0]),
-                                   source.line_of(span[1] - 1))
+      @coverage_map.ordered_tests_for_span(mutant.path, source.line_of(span[0]),
+                                           source.line_of(span[1] - 1))
     end
 
     # Maps [start_offset, end_offset] of every node to the span of the statement that
@@ -186,9 +190,13 @@ module Mutation
     # ---- execution ----------------------------------------------------------
 
     def execute(entries)
+      Boot.env(@config)
+      Boot.require_paths(@config)
       case @isolation
       when :fork
         @adapter.preload!
+        Boot.fire(@config, :after_boot)
+        Boot.fire(@config, :before_fork)
         run_pool(entries) { |entry| start_fork_job(entry) }
       when :process
         # No parent preload needed unless selection was disabled and test_ids
@@ -208,7 +216,7 @@ module Mutation
       active = []
 
       loop do
-        while active.size < @jobs && !queue.empty?
+        while !@halted && active.size < @jobs && !queue.empty?
           entry = queue.shift
           job = yield(entry)
           active << job if job
@@ -226,6 +234,7 @@ module Mutation
             next unless job
 
             finish_job(job, timed_out: false)
+            halt_fast_fail(job)
             active.delete(job)
           end
         end
@@ -236,6 +245,7 @@ module Mutation
           active.delete(job)
         end
       end
+      mark_skipped(queue)
     ensure
       active.each do |job|
         kill_process(job)
@@ -246,6 +256,31 @@ module Mutation
           nil
         end
         job.entry.result ||= error_result(job.entry, "runner aborted before the child finished")
+      end
+    end
+
+    # `--fail-fast` stops scheduling the moment the first survivor is known.
+    # Children already running are allowed to finish: their work is paid for,
+    # and their results are evidence the agent wants.
+    def halt_fast_fail(job)
+      return unless @fail_fast
+      return unless job.entry.result&.survived?
+
+      @halted = true
+    end
+
+    def mark_skipped(entries)
+      return unless @halted
+
+      entries.each do |entry|
+        next if entry.done?
+
+        entry.result = Result.new(
+          mutant: entry.mutant,
+          status: :skipped,
+          duration: 0.0,
+          message: "not run: --fail-fast stopped at the first survivor"
+        )
       end
     end
 
@@ -280,6 +315,7 @@ module Mutation
 
     def fork_child(entry, writer)
       begin
+        Boot.fire(@config, :child_start, entry.index)
         absolute = File.expand_path(entry.mutant.path.to_s)
         source = entry.source_text || File.read(absolute)
         # eval with the original path rather than load of a temp copy: require_relative
@@ -292,6 +328,7 @@ module Mutation
       end
 
       begin
+        Boot.fire(@config, :before_test_run)
         outcome = @adapter.run(entry.selected_ids)
       rescue Exception => e # rubocop:disable Lint/RescueException
         write_payload(writer, "boot_error" => true, "error" => describe_exception(e))
@@ -318,7 +355,11 @@ module Mutation
         "RUBY_MUTATION_TEST_IDS" => JSON.generate(entry.selected_ids.map(&:to_s)),
         "RUBY_MUTATION_MUTANT_PATH" => entry.mutant.path.to_s,
         "RUBY_MUTATION_MUTATED_FILE" => path,
-        "RUBY_MUTATION_PAYLOAD_FD" => "3"
+        "RUBY_MUTATION_PAYLOAD_FD" => "3",
+        "RUBY_MUTATION_CHILD_INDEX" => entry.index.to_s,
+        "RUBY_MUTATION_ENV" => JSON.generate(@config.env),
+        "RUBY_MUTATION_REQUIRES" => JSON.generate(@config.requires),
+        "RUBY_MUTATION_SETUP" => @config.setup_path.to_s
       }
       started = clock
 

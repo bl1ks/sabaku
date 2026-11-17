@@ -78,9 +78,15 @@ tier has no test at all: the suite only exercises the ten-item tier.
 | `--jobs=N` | `1` | mutants in flight at once |
 | `--timeout=SEC` | `5` | per-mutant deadline |
 | `--seed=N` | `0` | fixes the per-line operator choice |
-| `--operators=aor,ror,...` | see below | restrict mutation operators |
-| `--per-line=N` | `1` | mutants kept per line |
+| `--operators=aor,ror,...` | all | restrict mutation operators |
+| `--per-line=N\|all` | `1` | mutants kept per line; `all` keeps every candidate |
 | `--diff=PATH` | off | JSON `{"path" => [lines]}` allowlist |
+| `--since=REV` | off | only mutate the lines that changed since a git revision |
+| `--fail-fast` | off | stop at the first survivor and report the rest as `skipped` |
+| `--[no-]baseline` | on | abort when a test fails with no mutation applied |
+| `--env=KEY=VALUE` | none | set an ENV entry before the suite loads (repeatable) |
+| `--require=PATH` | none | require after coverage starts, before the tests (repeatable) |
+| `--setup=PATH` | none | Ruby file with boot hooks for Rails and friends |
 | `--[no-]coverage` | on | test selection; `--no-coverage` runs the whole suite per mutant |
 | `--isolation=fork\|process` | `fork` | reload a preloaded suite, or boot a fresh process |
 | `--report=terminal\|json\|quiet` | `terminal` | output |
@@ -128,11 +134,20 @@ CoverageMap (which test hits which line) --- tests_for ---> selected test ids --
 | `lcr` | logical connector replacement (`a && b` -> `a`, `b`, `a \|\| b`, `true`, `false`) | `&&`, `\|\|`, `and`, `or` |
 | `sbr` | statement block removal | multi-statement bodies |
 | `uoi` | unary operator insertion (`if x` -> `if !(x)`) | `if`, `unless`, `while`, `until` |
-| `bool` | boolean literal flip | `true` -> `false` (opt-in) |
-| `str` | non-empty string literal -> `""` | string literals (opt-in) |
+| `bool` | boolean literal flip | `true` -> `false` |
+| `str` | non-empty string literal -> `""` | string literals |
+| `literal` | integer and float step by one, array and hash collapse to empty | integer, float, array, hash literals |
+| `selector` | method name swap (`xs.map` -> `xs.each`, `a << 1` -> `a >> 1`) | the method replacement table |
+| `call` | drop the receiver, drop the receiver and message, drop or nil an argument | call sites |
+| `cond` | branch predicate becomes `true` and `false` | `if`, `unless` |
+| `assign` | compound assignment becomes plain assignment (`x += 1` -> `x = 1`) | `+=`, `\|\|=`, `&&=`, ... |
 
-Defaults are `aor,ror,lcr,sbr,uoi`. A mutation is applied by re-evaluating the file, and
-re-evaluation redefines a method but never undefines one. `sbr` therefore never removes a
+Every operator is on by default. An operator widens the candidate pool; `--per-line` decides how
+much of that pool a campaign runs, so `--per-line=1` stays cheap while `--per-line=all` runs the
+whole pool the way mutant does.
+
+A mutation is applied by re-evaluating the file, and re-evaluation redefines a method but never
+undefines one. `sbr` therefore never removes a
 statement from a file body, a class body or a module body: deleting a `def` there cannot change
 behaviour, so the mutant would always survive and teach nothing.
 
@@ -154,6 +169,13 @@ Suppressed because a unit test asserting them is not testing behaviour:
 
 A compound node is arid when every child is arid, which is the paper's rule. The database,
 network or filesystem call in an `if` body keeps that `if` live.
+
+## Rails
+
+`--setup` gives a Rails app the four hooks it needs: `env`, `require_path`, `after_boot`
+(`eager_load!`), `before_fork` (disconnect the pool), and `child_start` (per-child database).
+[`docs/rails.md`](docs/rails.md) has the recipes for transactional fixtures, per-child SQLite
+copies, and PostgreSQL templates, plus what can and cannot be targeted.
 
 ## Cost
 

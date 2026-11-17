@@ -1,0 +1,5 @@
+source "https://rubygems.org"
+
+# Only what booting and testing needs: no asset pipeline, no server, no debugger.
+gem "rails", "~> 8.1.4"
+gem "sqlite3", ">= 2.1"

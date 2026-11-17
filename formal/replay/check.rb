@@ -9,7 +9,7 @@
 require "digest"
 
 PER_LINE = 2
-OPERATORS = %i[aor ror lcr sbr uoi bool str].freeze
+OPERATORS = %i[aor ror lcr sbr uoi bool str literal selector call cond assign].freeze
 
 path = ARGV[0] || File.expand_path("../out/mutants.tsv", __dir__)
 abort "check: missing #{path}" unless File.file?(path)

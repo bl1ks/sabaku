@@ -3,6 +3,7 @@
 require_relative "../test_helper"
 require "tmpdir"
 require "stringio"
+require "json"
 
 class CLITest < Minitest::Test
   def in_project
@@ -37,6 +38,115 @@ class CLITest < Minitest::Test
       assert_equal 0, code
       assert_includes out, "usage: mutation"
       refute_includes err, "no mutants to run"
+    end
+  end
+
+  def test_since_restricts_the_mutants_to_the_lines_a_revision_changed
+    Dir.mktmpdir("ruby-mutation-cli-git") do |dir|
+      Dir.chdir(dir) do
+        FileUtils.mkdir_p("lib")
+        File.write("lib/subject.rb", "def one(a, b)\n  a + b\nend\n\ndef two(a, b)\n  a * b\nend\n")
+        git("init", "-q")
+        git("config", "user.email", "test@example.com")
+        git("config", "user.name", "Test")
+        git("add", "-A")
+        git("-c", "maintenance.auto=false", "-c", "gc.auto=0", "commit", "-qm", "one")
+
+        File.write("lib/subject.rb", "def one(a, b)\n  a + b\nend\n\ndef two(a, b)\n  a / b\nend\n")
+        code, out, err = start(["list", "--since=HEAD"])
+
+        assert_equal 0, code, err
+        lines = out.scan(/^[ \t]+(\d+)[ \t]+[a-z]+/).flatten.map(&:to_i).uniq
+        refute_empty lines
+        assert_equal [6], lines, "only the changed line should be mutated:\n#{out}"
+      end
+    ensure
+      reap_stragglers
+    end
+  end
+
+  def test_per_line_all_keeps_every_candidate
+    in_project do
+      File.write("lib/subject.rb", "def add(a, b)\n  a + b\nend\n")
+      File.write("lib/more.rb", "x = [1, 2]\nxs = [3]\n")
+
+      _code, one, = start(["list", "--per-line=1"])
+      _code, all, = start(["list", "--per-line=all"])
+
+      assert_operator total(all), :>, total(one)
+    end
+  end
+
+  def test_env_requires_a_value
+    in_project do
+      code, _out, err = start(["list", "--env=NOPE"])
+
+      assert_equal 2, code
+      assert_includes err, "--env"
+    end
+  end
+
+  def test_fail_fast_reports_the_rest_as_skipped
+    in_project do
+      File.write("lib/subject.rb", <<~RUBY)
+        class Subject
+          def add(a, b)
+            a + b
+          end
+
+          def mul(a, b)
+            a * b
+          end
+        end
+      RUBY
+      FileUtils.mkdir_p("test")
+      File.write("test/subject_test.rb", <<~RUBY)
+        require "minitest/autorun"
+        require "subject"
+
+        class SubjectTest < Minitest::Test
+          def test_add_is_truthy
+            assert Subject.new.add(2, 3)
+          end
+
+          def test_mul_is_truthy
+            assert Subject.new.mul(2, 3)
+          end
+        end
+      RUBY
+
+      code, out, err = start(["run", "lib", "--fail-fast", "--jobs=1", "--limit=3",
+                              "--report=json"])
+      payload = JSON.parse(out.lines.last)
+
+      assert_equal 0, code, err
+      assert_equal 1, payload["survived"]
+      assert_equal 1, payload["skipped"]
+      assert_equal 0, payload["killed"]
+    end
+  end
+
+  private
+
+  def total(list_output)
+    list_output[/^(\d+) mutants$/, 1].to_i
+  end
+
+  def git(*args)
+    system("git", *args, out: File::NULL, err: File::NULL) || raise("git #{args.join(" ")} failed")
+  end
+
+  def reap_stragglers
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 2.0
+    loop do
+      pid = begin
+        Process.waitpid(-1, Process::WNOHANG)
+      rescue Errno::ECHILD
+        return
+      end
+      return if pid.nil? && Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
+
+      sleep(0.01) if pid.nil?
     end
   end
 end

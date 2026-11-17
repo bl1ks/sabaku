@@ -18,6 +18,14 @@ module KitchenSink
     [total, label, enabled]
   end
 
+  def self.names(records)
+    records.map { |record| record[:name] }.select { |name| name }.first
+  end
+
+  def self.shift(value)
+    value << 1
+  end
+
   def self.clamp(value)
     value > LIMIT || value < 0 ? LIMIT : value
   end

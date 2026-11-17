@@ -6,7 +6,7 @@ module Mutation
   # Turns the result list into the two shapes a user sees: a terminal summary and JSON.
   # Everything is derived from Result values, so the report never re-runs or re-parses.
   class Report
-    ORDER = %i[killed survived timeout uncovered error].freeze
+    ORDER = %i[killed survived timeout uncovered error skipped].freeze
 
     attr_reader :results, :config
 
@@ -65,7 +65,7 @@ module Mutation
       width = ORDER.map { |s| s.to_s.length }.max
       ORDER.each do |status|
         count = counts[status]
-        next if count.zero? && %i[uncovered error].include?(status)
+        next if count.zero? && %i[uncovered error skipped].include?(status)
 
         share = results.empty? ? 0.0 : count.fdiv(results.size) * 100
         out << format("  %-#{width}s  %5d  %5.1f%%%s\n", status, count, share, note_for(status))
@@ -81,6 +81,7 @@ module Mutation
       when :timeout then "  <- killed by the clock, not by a test"
       when :uncovered then "  (no test covers the line; not scored)"
       when :error then "  <- the mutant could not be applied"
+      when :skipped then "  (not reached: --fail-fast stopped the run)"
       else ""
       end
     end
@@ -131,6 +132,7 @@ module Mutation
         timeout: counts[:timeout],
         uncovered: counts[:uncovered],
         error: counts[:error],
+        skipped: counts[:skipped],
         score: score.round(4),
         wall_ms: (results.sum(&:duration) * 1000).round,
         files: per_file,
