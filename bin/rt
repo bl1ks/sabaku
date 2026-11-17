@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Run a command inside the ruby-mutation dev container, repo mounted at /app.
+set -euo pipefail
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+exec docker run --rm -i \
+  -v "$root:/app" -w /app \
+  -e HOME=/tmp -e "RUBYOPT=" -e "LANG=C.UTF-8" \
+  --user "$(id -u):$(id -g)" \
+  --label ruby-mutation.rt=1 \
+  "${RT_IMAGE:-ruby-mutation:dev}" "$@"

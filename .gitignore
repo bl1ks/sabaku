@@ -1,0 +1,4 @@
+tmp/
+bench/out/
+*.gem
+.DS_Store

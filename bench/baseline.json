@@ -1,0 +1,53 @@
+{
+  "updated_at": "2026-11-17T11:45:00Z",
+  "cases": {
+    "fork_wait": {
+      "median_ns": 2092775.0738337636,
+      "n": 2000,
+      "unit": "op",
+      "file": "micro.json"
+    },
+    "spawn_ruby_empty": {
+      "median_ns": 29965802.561491728,
+      "n": 150,
+      "unit": "op",
+      "file": "micro.json"
+    },
+    "prism_parse_fixture_lib": {
+      "median_ns": 50559.98917669058,
+      "n": 7500,
+      "unit": "op",
+      "file": "micro.json"
+    },
+    "prism_parse_generated_500": {
+      "median_ns": 610862.5093474984,
+      "n": 2000,
+      "unit": "op",
+      "file": "micro.json"
+    },
+    "coverage_start_peek_result_load": {
+      "median_ns": 126938.10276687145,
+      "n": 1500,
+      "unit": "op",
+      "file": "micro.json"
+    },
+    "file_write_2kb": {
+      "median_ns": 9907.875210046768,
+      "n": 10000,
+      "unit": "op",
+      "file": "micro.json"
+    },
+    "file_read_2kb": {
+      "median_ns": 3036.11159324646,
+      "n": 10000,
+      "unit": "op",
+      "file": "micro.json"
+    },
+    "load_small_file": {
+      "median_ns": 10549.090802669525,
+      "n": 5000,
+      "unit": "op",
+      "file": "micro.json"
+    }
+  }
+}

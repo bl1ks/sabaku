@@ -1,0 +1,232 @@
+# frozen_string_literal: true
+
+require "optparse"
+require "json"
+
+module Mutation
+  # Argument parsing and the three verbs. The CLI is the only place that touches a project's
+  # filesystem layout: everything below takes paths and a frozen Config.
+  class CLI
+    EXIT_OK = 0
+    EXIT_BELOW_SCORE = 1
+    EXIT_ERROR = 2
+
+    def self.start(argv, out: $stdout, err: $stderr)
+      new(argv, out: out, err: err).run
+    end
+
+    def initialize(argv, out: $stdout, err: $stderr)
+      @argv = argv.dup
+      @out = out
+      @err = err
+    end
+
+    def run
+      command = @argv.shift
+      case command
+      when nil, "-h", "--help", "help"
+        @out.puts(help)
+        EXIT_OK
+      when "-v", "--version", "version"
+        @out.puts("ruby-mutation #{VERSION}")
+        EXIT_OK
+      when "run" then run_command
+      when "list" then list_command
+      when "doctor" then doctor_command
+      else
+        @err.puts("unknown command #{command.inspect}, try `mutation help`")
+        EXIT_ERROR
+      end
+    rescue Mutation::Error, OptionParser::ParseError => e
+      @err.puts("mutation: #{e.message}")
+      EXIT_ERROR
+    rescue StandardError => e
+      @err.puts("mutation: #{e.class}: #{e.message}")
+      @err.puts(e.backtrace.first(8).join("\n")) if ENV["MUTATION_DEBUG"]
+      EXIT_ERROR
+    end
+
+    private
+
+    def run_command
+      options = parse
+      return EXIT_OK unless options
+
+      cfg = build_config(options)
+      sources = load_sources(cfg)
+      analyzer = Analyzer.new(sources, cfg)
+      mutants = analyzer.mutants
+      mutants = mutants.first(options[:limit]) if options[:limit]
+      if mutants.empty?
+        @err.puts("mutation: no mutants to run (check the paths and --diff)")
+        return EXIT_OK
+      end
+
+      adapter = Adapter.for(cfg.adapter, cfg)
+      coverage_map = collect_coverage(cfg, adapter, sources)
+      results = Runner.new(cfg, analyzer: analyzer, adapter: adapter,
+                                coverage_map: coverage_map).call(mutants)
+
+      report = Report.new(results, cfg)
+      emit(report, cfg)
+      threshold = options[:min_score]
+      return EXIT_OK if threshold.nil?
+
+      report.score * 100 < threshold ? EXIT_BELOW_SCORE : EXIT_OK
+    end
+
+    def list_command
+      options = parse
+      return EXIT_OK unless options
+
+      cfg = build_config(options)
+      mutants = Analyzer.new(load_sources(cfg), cfg).mutants
+      mutants = mutants.first(options[:limit]) if options[:limit]
+      mutants.group_by(&:path).each do |path, list|
+        @out.puts("#{path}  (#{list.size})")
+        list.each { |m| @out.puts(format("  %5d  %-16s %s", m.line, m.operator, m.description)) }
+      end
+      @out.puts("\n#{mutants.size} mutants")
+      EXIT_OK
+    end
+
+    def doctor_command
+      @out.puts("ruby-mutation #{VERSION}")
+      @out.puts("  ruby       #{RUBY_VERSION}")
+      @out.puts("  prism      #{defined?(Prism::VERSION) ? Prism::VERSION : "missing"}")
+      @out.puts("  minitest   #{defined?(Minitest::VERSION) ? Minitest::VERSION : "not loaded"}")
+      @out.puts("  rspec      #{defined?(RSpec::Version::STRING) ? RSpec::Version::STRING : "not loaded"}")
+      @out.puts("  data       #{defined?(Data) ? "ok" : "missing"}")
+      @out.puts("  coverage   #{require_coverage}")
+      @out.puts("  cpus       #{cpu_count}")
+      @out.puts("  adapters   minitest, rspec")
+      @out.puts("  operators  #{Operator::Registry.ids.join(", ")}")
+      EXIT_OK
+    end
+
+    def require_coverage
+      require "coverage"
+      "ok"
+    rescue LoadError
+      "missing"
+    end
+
+    def parse
+      options = {}
+      parser = OptionParser.new do |o|
+        o.banner = "usage: mutation <run|list|doctor> [paths] [options]"
+        o.on("--adapter=NAME", "minitest or rspec") { |v| options[:adapter] = v.to_sym }
+        o.on("--jobs=N", Integer, "mutants in flight at once") { |v| options[:jobs] = v }
+        o.on("--timeout=SEC", Float, "per-mutant deadline") { |v| options[:timeout] = v }
+        o.on("--seed=N", Integer, "operator choice seed") { |v| options[:seed] = v }
+        o.on("--operators=LIST", "comma separated operator ids") do |v|
+          options[:operators] = v.split(",").map(&:strip).reject(&:empty?).map(&:to_sym)
+        end
+        o.on("--per-line=N", Integer, "mutants kept per line") { |v| options[:per_line] = v }
+        o.on("--diff=PATH", "JSON {path => [lines]} to restrict mutation") do |v|
+          raw = JSON.parse(File.read(v))
+          options[:diff_ranges] = raw.transform_values do |lines|
+            lines.map { |l| Array(l).first..Array(l).last }
+          end
+        end
+        o.on("--[no-]coverage", "select tests by line coverage") { |v| options[:coverage] = v }
+        o.on("--isolation=MODE", "fork or process") { |v| options[:isolation] = v.to_sym }
+        o.on("--report=FORMAT", "terminal, json, quiet") { |v| options[:report] = v.to_sym }
+        o.on("--output=PATH", "write the JSON report here") { |v| options[:output] = v }
+        o.on("--min-score=PCT", Float, "exit 1 below this score") { |v| options[:min_score] = v }
+        o.on("--exclude=GLOB", "skip files") { |v| (options[:exclude] ||= []) << v }
+        o.on("--limit=N", Integer, "cap the number of mutants") { |v| options[:limit] = v }
+        o.on("-h", "--help", "this") do
+          @out.puts(o.to_s)
+          throw(:help)
+        end
+      end
+      caught = catch(:help) do
+        parser.parse!(@argv)
+        :none
+      end
+      return nil if caught == :help
+
+      options[:paths] = @argv.dup unless @argv.empty?
+      options
+    end
+
+    def build_config(options)
+      keys = %i[paths exclude operators adapter jobs timeout seed per_line diff_ranges
+                coverage isolation report output]
+      Config.default(**options.slice(*keys))
+    end
+
+    def load_sources(cfg)
+      patterns = cfg.paths.empty? ? ["lib/**/*.rb"] : cfg.paths
+      files = patterns.flat_map do |pattern|
+        File.directory?(pattern) ? Dir.glob(File.join(pattern, "**/*.rb")) : Dir.glob(pattern)
+      end
+      files = files.uniq.reject { |f| File.directory?(f) }.reject { |f| excluded?(f, cfg.exclude) }
+      raise Mutation::Error, "no Ruby files matched #{patterns.inspect}" if files.empty?
+
+      files.sort.map { |file| Source.new(relative(file), File.read(file)) }
+    end
+
+    def excluded?(file, globs)
+      globs.any? { |glob| File.fnmatch?(glob, relative(file), File::FNM_PATHNAME | File::FNM_EXTGLOB) }
+    end
+
+    def relative(file)
+      file.sub(%r{\A#{Regexp.escape(Dir.pwd)}/}, "")
+    end
+
+    def collect_coverage(cfg, adapter, sources)
+      return CoverageMap.empty unless cfg.coverage
+      return CoverageMap.empty unless defined?(Adapters::CoverageSampler)
+
+      Adapters::CoverageSampler.new(cfg, adapter, sources).call
+    rescue StandardError => e
+      @err.puts("mutation: coverage collection failed (#{e.class}: #{e.message})")
+      @err.puts("mutation: running every mutant against the whole suite")
+      CoverageMap.empty
+    end
+
+    def emit(report, cfg)
+      case cfg.report
+      when :quiet then nil
+      when :json then @out.puts(report.to_json)
+      else @out.print(report.to_terminal)
+      end
+      return unless cfg.output
+
+      File.write(cfg.output, JSON.pretty_generate(report.to_h))
+      @out.puts("wrote #{cfg.output}") unless cfg.report == :quiet
+    end
+
+    def cpu_count
+      File.read("/proc/cpuinfo").scan(/^processor/).size
+    rescue StandardError
+      Integer(ENV.fetch("NUMBER_OF_PROCESSORS", 1))
+    end
+
+    def help
+      <<~HELP
+        ruby-mutation #{VERSION} - mutation testing for minitest and rspec
+
+          mutation run [paths]     mutate, run the covering tests, report
+          mutation list [paths]    show the mutants without running them
+          mutation doctor          report the environment
+
+        Common options:
+          --adapter=minitest|rspec   which suite to drive (default minitest)
+          --jobs=N                   mutants in flight at once
+          --timeout=SEC              per-mutant deadline (default 5)
+          --operators=aor,ror,...    enabled operators
+          --per-line=N               mutants kept per line (default 1)
+          --diff=PATH                only mutate the lines in {"path" => [lines]}
+          --isolation=fork|process   fork from a preloaded suite, or a fresh process
+          --report=terminal|json     output format
+          --output=PATH              write the JSON report
+          --min-score=PCT            exit 1 when the score is below this
+
+        Exit codes: 0 ok, 1 below --min-score, 2 error.
+      HELP
+    end
+  end
+end
