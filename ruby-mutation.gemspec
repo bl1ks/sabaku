@@ -13,6 +13,8 @@ Gem::Specification.new do |spec|
     "State of Mutation Testing at Google" (Petrovic & Ivankovic, ICSE-SEIP 2018).
   DESC
   spec.license = "MIT"
+  spec.homepage = "https://github.com/kyusu/ruby-mutation"
+  spec.metadata["rubygems_mfa_required"] = "true"
   spec.required_ruby_version = ">= 3.2"
 
   spec.files = Dir["lib/**/*.rb", "bin/*", "docs/*.md", "README.md"]
@@ -20,6 +22,6 @@ Gem::Specification.new do |spec|
   spec.executables = ["mutation"]
   spec.require_paths = ["lib"]
 
-  spec.add_development_dependency "minitest", ">= 5.16"
-  spec.add_development_dependency "rspec", ">= 3.10"
+  spec.add_development_dependency "minitest", ">= 5.19"
+  spec.add_development_dependency "rspec", "~> 3.13"
 end

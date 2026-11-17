@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Whole verification matrix for ruby-mutation, in one command. Exits nonzero on the first
+# failure so CI and a reviewer can trust a single green line.
+set -euo pipefail
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+
+script='
+set -euo pipefail
+cd /app
+
+unit() {
+  ruby -Ilib -Itest -e "Dir[\"test/{core,adapters,cli}/**/*_test.rb\"].sort.each { |f| require File.expand_path(f) }" 2>&1 | tail -2
+}
+e2e() { ruby -Ilib -Itest test/e2e/campaign_test.rb 2>&1 | tail -2; }
+
+echo "== minitest 6 (image default)"
+ruby -e "require \"minitest\"; puts \"   minitest #{Minitest::VERSION}\""
+unit
+e2e
+
+echo "== minitest 5 (the version Ruby ships as a bundled gem)"
+mkdir -p /tmp/mt5
+if ! gem list -i rspec --install-dir /tmp/mt5 >/dev/null 2>&1; then
+  gem install --no-document --install-dir /tmp/mt5 rspec >/dev/null
+fi
+GEM_HOME=/tmp/mt5 GEM_PATH=/tmp/mt5:/usr/local/lib/ruby/gems/3.4.0
+export GEM_HOME GEM_PATH
+ruby -e "require \"minitest\"; require \"rspec\"; puts \"   minitest #{Minitest::VERSION}, rspec #{RSpec::Version::STRING}\""
+unit
+e2e
+
+echo "== bench regression gate"
+unset GEM_HOME GEM_PATH
+ruby bench/report.rb | tail -2
+
+echo "== packaged gem runs against a project"
+gem build -q ruby-mutation.gemspec >/dev/null
+rm -rf /tmp/gemhome && mkdir -p /tmp/gemhome
+gem install --no-document --install-dir /tmp/gemhome ruby-mutation-0.1.0.gem >/dev/null
+cd fixture/rspec_inventory
+GEM_HOME=/tmp/gemhome GEM_PATH=/tmp/gemhome:/usr/local/bundle:/usr/local/lib/ruby/gems/3.4.0 \
+  /tmp/gemhome/bin/mutation run lib --adapter=rspec --min-score=50 --report=quiet
+echo "   installed gem: campaign ok"
+'
+
+exec "$root/bin/rt" bash -c "$script"

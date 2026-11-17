@@ -40,6 +40,12 @@ module Mutation
     rescue Mutation::Error, OptionParser::ParseError => e
       @err.puts("mutation: #{e.message}")
       EXIT_ERROR
+    rescue LoadError => e
+      # LoadError is a ScriptError, not a StandardError, so it would otherwise escape the
+      # CLI and exit 1 with a raw backtrace, which reads like a test failure.
+      @err.puts("mutation: #{e.message}")
+      @err.puts("mutation: a gem the adapter needs is not installed; add it to your bundle")
+      EXIT_ERROR
     rescue StandardError => e
       @err.puts("mutation: #{e.class}: #{e.message}")
       @err.puts(e.backtrace.first(8).join("\n")) if ENV["MUTATION_DEBUG"]
@@ -62,8 +68,15 @@ module Mutation
         return EXIT_OK
       end
 
-      adapter = Adapter.for(cfg.adapter, cfg)
+      adapter = start_adapter(cfg)
       coverage_map = collect_coverage(cfg, adapter, sources)
+      if coverage_map.nil?
+        # Selection failed. Running every test for every mutant is slow but correct;
+        # an empty map would instead mark every mutant uncovered and score the run 0.
+        @err.puts("mutation: continuing without coverage-based selection")
+        cfg = cfg.with(coverage: false)
+        coverage_map = CoverageMap.empty
+      end
       results = Runner.new(cfg, analyzer: analyzer, adapter: adapter,
                                 coverage_map: coverage_map).call(mutants)
 
@@ -94,14 +107,24 @@ module Mutation
       @out.puts("ruby-mutation #{VERSION}")
       @out.puts("  ruby       #{RUBY_VERSION}")
       @out.puts("  prism      #{defined?(Prism::VERSION) ? Prism::VERSION : "missing"}")
-      @out.puts("  minitest   #{defined?(Minitest::VERSION) ? Minitest::VERSION : "not loaded"}")
-      @out.puts("  rspec      #{defined?(RSpec::Version::STRING) ? RSpec::Version::STRING : "not loaded"}")
+      @out.puts("  minitest   #{framework_version("minitest", "Minitest::VERSION")}")
+      @out.puts("  rspec      #{framework_version("rspec", "RSpec::Version::STRING")}")
       @out.puts("  data       #{defined?(Data) ? "ok" : "missing"}")
       @out.puts("  coverage   #{require_coverage}")
       @out.puts("  cpus       #{cpu_count}")
       @out.puts("  adapters   minitest, rspec")
       @out.puts("  operators  #{Operator::Registry.ids.join(", ")}")
       EXIT_OK
+    end
+
+    # Doctor has to answer "will the adapter work here", which means trying the require
+    # rather than reporting whether somebody else already loaded it.
+    def framework_version(gem_name, constant)
+      require gem_name
+      value = constant.split("::").reduce(Object) { |scope, name| scope.const_get(name) }
+      value.to_s
+    rescue LoadError
+      "missing (#{gem_name} is not installed)"
     end
 
     def require_coverage
@@ -176,15 +199,23 @@ module Mutation
       file.sub(%r{\A#{Regexp.escape(Dir.pwd)}/}, "")
     end
 
+    def start_adapter(cfg)
+      Adapter.for(cfg.adapter, cfg)
+    rescue LoadError => e
+      raise Mutation::Error,
+            "the #{cfg.adapter} adapter cannot be loaded (#{e.message}). " \
+            "Add #{cfg.adapter == :minitest ? "minitest" : "rspec"} to your bundle."
+    end
+
+    # nil means "selection is unavailable", which the caller turns into --no-coverage.
     def collect_coverage(cfg, adapter, sources)
       return CoverageMap.empty unless cfg.coverage
       return CoverageMap.empty unless defined?(Adapters::CoverageSampler)
 
       Adapters::CoverageSampler.new(cfg, adapter, sources).call
-    rescue StandardError => e
+    rescue StandardError, LoadError => e
       @err.puts("mutation: coverage collection failed (#{e.class}: #{e.message})")
-      @err.puts("mutation: running every mutant against the whole suite")
-      CoverageMap.empty
+      nil
     end
 
     def emit(report, cfg)

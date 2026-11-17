@@ -118,7 +118,10 @@ module Mutation
       # process autorun is already installed, and unregistering the loaded
       # classes (below) keeps that existing at_exit from running the fixture.
       def load_without_autorun(files)
-        suppress = !::Minitest.installed_at_exit?
+        # minitest 5.25 (Ruby 3.4's bundled version) has no `installed_at_exit?`, so the
+        # guard is feature-detected rather than version-sniffed. Without it, preloading a
+        # project under 5.x crashed before a single mutant ran.
+        suppress = !::Minitest.installed_at_exit? if ::Minitest.respond_to?(:installed_at_exit?)
         singleton = ::Minitest.singleton_class
         if suppress
           singleton.send(:alias_method, :__mutation_saved_autorun, :autorun)
