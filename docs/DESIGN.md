@@ -188,29 +188,6 @@ Suppressed because unit tests do not assert them, or because killing them teache
 - `__FILE__`, `__dir__`, `__method__`, `freeze`, `.frozen?`, `# frozen_string_literal: true`
 - compound node: arid iff every child is arid
 
-## Harness contract
-
-`bench/` measures the engine, never the reverse. It ships before the engine and keeps working
-after. Both scripts write the same JSON schema to `bench/out/<name>.json`.
-
-```json
-{"name": "micro", "started_at": "...", "ruby": "3.4.12", "cpu_count": 8,
- "cases": [{"id": "fork_wait", "n": 2000, "unit": "op", "median_ns": 1234.0,
-            "p95_ns": 1500.0, "min_ns": 1000.0, "max_ns": 2000.0, "warmup": 100}]}
-```
-
-```json
-{"name": "campaign", "fixture": "minitest_calc", "mutants": 41, "killed": 30, "survived": 11,
- "timeout": 0, "error": 0, "uncovered": 3, "score": 0.71,
- "wall_s": 2.31, "mutant_p50_ms": 41.2, "mutant_p95_ms": 88.0,
- "modes": [{"id": "engine_fork_coverage", "wall_s": 2.31},
-           {"id": "reference_full_suite_process", "wall_s": 9.8}]}
-```
-
-`bench/campaign.rb` must produce the reference numbers before the engine exists, so the plan has
-a cost estimate on day one: `reference_full_suite_process` runs the fixture's whole suite once
-per mutant in a fresh process, which is what a naive tool costs.
-
 ## Verified framework APIs (probed, not guessed)
 
 Ruby in the dev image is 3.4.12, minitest 6.1.0, rspec 3.13.2. These were checked in the

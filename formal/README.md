@@ -140,7 +140,7 @@ contract:
   proof: a file that runs no unknown code at load time is assumed to be unobservable when loaded
   twice, and a construct the screen does not recognize would leave its kills unverified. The probe
   itself is exact — it runs the same test with the file loaded once more and no mutation.
-- Nothing about performance. Numbers live in `bench/`.
+- Nothing about performance.
 - Quint is bounded. The honest model is decided for three mutants, two workers, and ten steps in
   `--deep`; larger pools are not checked.
 

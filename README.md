@@ -181,34 +181,6 @@ network or filesystem call in an `if` body keeps that `if` live.
 [`docs/rails.md`](docs/rails.md) has the recipes for transactional fixtures, per-child SQLite
 copies, and PostgreSQL templates, plus what can and cannot be targeted.
 
-## Cost
-
-Measured by `bench/`, which was written before the engine and still runs against it. Ruby 3.4.12,
-20 cores, 5 alternating repetitions per mode, container startup outside the timed region.
-
-Primitive costs (`bench/micro.rb`, median):
-
-| operation | median | limiter |
-| --- | ---: | --- |
-| fork + wait | 2.09 ms | fork syscall and scheduler wakeup; bimodal 0.7 / 2.2 ms |
-| spawn `ruby -e ''` | 29.97 ms | interpreter boot |
-| Prism parse, 27-line file | 50.6 µs | parse |
-| Prism parse, 500-line file | 610.9 µs | parse |
-| `Coverage.start` + `peek_result` + load | 126.9 µs | coverage instrumentation |
-
-Campaign on the minitest fixture (`bench/campaign.rb`, 5 reps, wall/mutant):
-
-| mode | wall/mutant | what it measures |
-| --- | ---: | --- |
-| fresh process, whole suite per mutant | 48.7 ms | what a naive tool costs |
-| forked child, whole suite per mutant | 6.7 ms | preload reuse without test selection |
-| this engine, 11 mutants | 8.8 ms | startup dominates at small N |
-| this engine, 30 mutants | 2.95 ms | fixed startup amortised, child p50 1.5 ms |
-
-Selection is what buys the last factor: a mutant runs one or two tests instead of six on that
-fixture. A fresh process per mutant is capped at about 33 mutants/s by interpreter boot, which is
-why fork is the default isolation and process is the fallback.
-
 ## Limits
 
 These are real and deliberate; know them before trusting a score.
@@ -234,13 +206,18 @@ There is no Ruby on the host machine used for this work, so everything runs in t
 
 ```sh
 ./bin/check                                             # unit + e2e under minitest 5 and 6,
-                                                        # bench gate, packaged gem smoke test
+                                                        # packaged gem smoke test,
+                                                        # formal regression probes
 ./bin/rt ruby -Ilib -Itest test/e2e/campaign_test.rb   # end to end against the fixtures
 ./bin/rt sh -c 'cd /app && ruby -Ilib -Itest -e "Dir[\"test/{core,adapters,cli}/**/*_test.rb\"].sort.each { |f| require File.expand_path(f) }"'
-./bin/rt ruby bench/micro.rb && ./bin/rt ruby bench/campaign.rb && ./bin/rt ruby bench/report.rb
 ```
 
+`formal/` proves the engine's pure part in Lean and model-checks the runner's pool in Quint. Its
+regression probes run at the end of `./bin/check`; the proofs need the Lean and Quint toolchain,
+so `./bin/formal` runs them on their own. `formal/README.md` lists what is proven and what is
+trusted.
+
 `docs/DESIGN.md` is the contract the implementation was built against: value objects, operator
-protocol, mutant lifecycle, aridity rules, harness JSON schema, and the framework APIs that were
-verified by probing rather than guessed. `fixture/` holds two small projects with deliberately
-weak assertions, one per framework.
+protocol, mutant lifecycle, aridity rules, and the framework APIs that were verified by probing
+rather than guessed. `fixture/` holds small projects with deliberately weak assertions, one per
+framework.

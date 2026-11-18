@@ -1,5 +1,4 @@
 tmp/
-bench/out/
 *.gem
 .DS_Store
 .mutation-cache.json

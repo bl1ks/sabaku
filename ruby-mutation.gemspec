@@ -17,7 +17,7 @@ Gem::Specification.new do |spec|
   spec.metadata["rubygems_mfa_required"] = "true"
   spec.required_ruby_version = ">= 3.2"
 
-  spec.files = Dir["lib/**/*.rb", "bin/*", "docs/*.md", "README.md"]
+  spec.files = Dir["lib/**/*.rb", "bin/mutation", "docs/*.md", "README.md"]
   spec.bindir = "bin"
   spec.executables = ["mutation"]
   spec.require_paths = ["lib"]
