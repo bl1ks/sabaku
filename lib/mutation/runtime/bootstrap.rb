@@ -14,6 +14,8 @@
 #   RUBY_MUTATION_MUTANT_PATH  repo-relative path of the mutated file
 #   RUBY_MUTATION_MUTATED_FILE absolute path of the mutated temporary file
 #   RUBY_MUTATION_PAYLOAD_FD   fd number of the completion pipe (3)
+#   RUBY_MUTATION_NEUTRAL      "1" boots the project with no mutation applied
+#                              (the baseline check in process isolation)
 #
 # The mutated source is loaded first, then the original target path is put in
 # $LOADED_FEATURES so the project's `require "target"` (in the test files) is a
@@ -52,7 +54,7 @@ module Mutation
           apply_env
           apply_requires
           fire(:child_start, index)
-          load_mutated_target(target_path, mutated_file, root)
+          load_mutated_target(target_path, mutated_file, root) unless neutral?
           @adapter.preload!
           fire(:after_boot)
           fire(:before_test_run)
@@ -67,6 +69,12 @@ module Mutation
           emit(payload, "boot_error" => true, "error" => describe(e))
           exit!(2)
         end
+      end
+
+      # A neutral child runs the suite with no mutation applied at all, which is
+      # the only way to learn that a red suite is red before anything is mutated.
+      def neutral?
+        ENV["RUBY_MUTATION_NEUTRAL"] == "1"
       end
 
       def build_adapter(name)

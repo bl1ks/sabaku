@@ -58,7 +58,9 @@ survivors:
 ```
 
 Exit codes are `0` ok, `1` when the reported score is below `--min-score`, `2` error,
-so CI can gate on the score:
+so CI can gate on the score. A campaign that leaves any mutant without a result also
+exits `2`: the score is computed over the mutants that ran, so a run with errors is not
+a measurement of the suite:
 
 ```sh
 mutation run --adapter=rspec --min-score=70 --report=json --output=mutation.json
@@ -83,7 +85,7 @@ tier has no test at all: the suite only exercises the ten-item tier.
 | `--diff=PATH` | off | JSON `{"path" => [lines]}` allowlist |
 | `--since=REV` | off | only mutate the lines that changed since a git revision |
 | `--fail-fast` | off | stop at the first survivor and report the rest as `skipped` |
-| `--[no-]baseline` | on | abort when a test fails with no mutation applied |
+| `--[no-]baseline` | on | refuse to score a suite that is not green, and re-check each kill against a second load of the file |
 | `--env=KEY=VALUE` | none | set an ENV entry before the suite loads (repeatable) |
 | `--require=PATH` | none | require after coverage starts, before the tests (repeatable) |
 | `--setup=PATH` | none | Ruby file with boot hooks for Rails and friends |

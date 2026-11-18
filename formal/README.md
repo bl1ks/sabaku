@@ -54,7 +54,8 @@ Each row names the property in plain words and the code it mirrors.
 | Aridity | Adding an expert rule only makes more nodes arid. | `expert_arid?` |
 | Aridity | An arid node contributes no mutant and neither does its subtree. | `Analyzer#walk` |
 | Aridity | The walk never emits a node outside the subtree it was given. | `Analyzer#walk` |
-| Selection | One group keeps exactly `min per_line size` mutants, so never more than `per_line`. | `select_per_line` |
+| Selection | One group keeps at most `min per_line size` mutants, so never more than `per_line`. | `select_per_line` |
+| Selection | A candidate whose rewrite does not re-parse is never kept, and it costs the line no other candidate. | `candidate_parses?`, `select_per_line` |
 | Selection | With `--per-line=1` one line contributes at most one mutant. | `select_per_line` |
 | Selection | A second analysis of the same line keeps the same set. | `select_per_line` |
 | Score | The score is in `[0, 1]`; it is 1 only with no survivors and no timeouts. | `Report#score` |
@@ -62,7 +63,7 @@ Each row names the property in plain words and the code it mirrors.
 | Cache | The reader never returns `uncovered`. | `Cache#fetch` |
 | Cache | Everything the runner writes is read back unchanged. | `persist_results`, `Cache#fetch` |
 | Cache | The reader accepts two statuses the writer never produces. | `KNOWN_STATUSES` vs `persist_results` |
-| Cache | A file whose version is not 1 is ignored; a current file loads. | `Cache#load_entries` |
+| Cache | A file whose version is not the current one is ignored; a current file loads. | `Cache#load_entries` |
 
 ## What Quint checks
 
@@ -83,6 +84,13 @@ Checked invariants:
 - `INV_denominator_covers_timeouts`: timeouts are counted.
 - `INV_skipped_has_no_child`: a `--fail-fast` skipped mutant never started a child.
 - `INV_skip_only_after_survivor`: nothing is skipped before a survivor stopped the run.
+- `INV_rewrite_only_kills`: the kill check runs at most once per mutant.
+
+Two checks sit around the pool and are modelled only where they can change a result. The baseline
+runs before any mutant exists, so it either lets the campaign start or ends it with no result at
+all. The kill check rewrites a reported `killed` to `error`, which the model records as `rewrites`
+rather than as a second write, because a second write would make `INV_one_result` say nothing
+about the pool.
 
 The default gate checks three mutants with two workers up to six steps; `--deep` checks up to ten
 steps, which reaches `finalize`. Apalache decides every interleaving inside the bound, not a
@@ -128,6 +136,10 @@ contract:
   replay checks that the corpus has no ties.
 - SHA1 truncated to 64 bits can collide. The proof shows the id is a function of
   `(path, start, end, replacement)`; collision resistance is an assumption.
+- `LoadHazard` decides which files get a kill check. It is a screen over the parse tree, not a
+  proof: a file that runs no unknown code at load time is assumed to be unobservable when loaded
+  twice, and a construct the screen does not recognize would leave its kills unverified. The probe
+  itself is exact — it runs the same test with the file loaded once more and no mutation.
 - Nothing about performance. Numbers live in `bench/`.
 - Quint is bounded. The honest model is decided for three mutants, two workers, and ten steps in
   `--deep`; larger pools are not checked.

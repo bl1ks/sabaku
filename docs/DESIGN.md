@@ -40,7 +40,7 @@ Config = Data.define(
   :setup,        # Mutation::Setup | nil, the --setup hooks
   :setup_path,   # String | nil, the file the setup came from (process isolation)
   :fail_fast,    # Boolean, stop at the first survivor
-  :baseline      # Boolean, abort when a test fails with no mutation applied
+  :baseline      # Boolean, refuse to score a suite that is not green and re-check kills
 )
 Config.default(**overrides) -> Config
 

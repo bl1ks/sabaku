@@ -167,7 +167,7 @@ module Mutation
         end
         o.on("--since=REV", "only mutate lines that changed since REV") { |v| options[:since] = v }
         o.on("--fail-fast", "stop at the first surviving mutant") { options[:fail_fast] = true }
-        o.on("--[no-]baseline", "abort when the suite is already red") { |v| options[:baseline] = v }
+        o.on("--[no-]baseline", "refuse to score a suite that is already red") { |v| options[:baseline] = v }
         o.on("--env=KEY=VALUE", "ENV entry set before the suite loads (repeatable)") do |v|
           key, value = v.split("=", 2)
           raise OptionParser::InvalidArgument, "--env needs KEY=VALUE" if value.nil?
@@ -297,7 +297,7 @@ module Mutation
           --diff=PATH                only mutate the lines in {"path" => [lines]}
           --since=REV                only mutate lines changed since a git revision
           --fail-fast                stop at the first surviving mutant
-          --[no-]baseline            abort when the suite is already red (default on)
+          --[no-]baseline            refuse to score a suite that is already red (default on)
           --env=KEY=VALUE            ENV set before the suite loads (repeatable)
           --require=PATH             require after coverage starts, before the tests
           --setup=PATH               Ruby file with boot hooks for Rails and friends

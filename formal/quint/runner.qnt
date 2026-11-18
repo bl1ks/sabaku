@@ -5,6 +5,18 @@
 /// ways: it reports a result (killed or survived), it dies without a usable result (error), or
 /// the parent kills it at its deadline (timeout).
 ///
+/// Two checks sit around the pool and are modelled only where they change a result:
+///
+///   * `verify_baseline!` runs before any mutant exists: it either lets the campaign start or
+///     stops it with no result at all, so there is no mutant state for it to reach.
+///   * `verify_kills` runs after the pool and rewrites a reported `killed` to `error` when the
+///     same test fails with the target file loaded a second time and no mutation. It is the
+///     `verifyKill` action, and `rewrites` counts it, because a second write would otherwise
+///     make `INV_one_result` say nothing about the pool.
+///
+/// The exit code policy (`error` above zero exits 2, `lib/mutation/cli.rb`) is not modelled here;
+/// `bin/check` covers the CLI.
+///
 /// The deadline race is kept as the freedom to take the timeout transition from any running
 /// mutant. `run_pool` checks the pipe before the deadline, so on a real schedule only one of the
 /// two is available; offering both over-approximates the schedules, and a safety property that
@@ -37,6 +49,8 @@ module runner {
   var result: int -> str
   /// How many outcomes the mutant has been given. The runner assigns each entry once.
   var writes: int -> int
+  /// How many times the kill check replaced a reported kill with `error`.
+  var rewrites: int -> int
   /// Whether a child was started for the mutant, so `uncovered` can be checked against it.
   var childRan: int -> bool
   /// Whether `--fail-fast` has stopped scheduling.
@@ -60,6 +74,7 @@ module runner {
     phase' = Map(0 -> "new", 1 -> "new", 2 -> "new"),
     result' = Map(0 -> "", 1 -> "", 2 -> ""),
     writes' = Map(0 -> 0, 1 -> 0, 2 -> 0),
+    rewrites' = Map(0 -> 0, 1 -> 0, 2 -> 0),
     childRan' = Map(0 -> false, 1 -> false, 2 -> false),
     halted' = false,
     reported' = false,
@@ -76,6 +91,7 @@ module runner {
       childRan' = childRan,
       halted' = halted,
       reported' = reported,
+      rewrites' = rewrites,
     }
   }
 
@@ -89,6 +105,7 @@ module runner {
       childRan' = childRan,
       halted' = halted,
       reported' = reported,
+      rewrites' = rewrites,
     }
   }
 
@@ -105,6 +122,7 @@ module runner {
       childRan' = childRan.set(i, true),
       halted' = halted,
       reported' = reported,
+      rewrites' = rewrites,
     }
   }
 
@@ -120,6 +138,7 @@ module runner {
       childRan' = childRan,
       halted' = halted,
       reported' = reported,
+      rewrites' = rewrites,
     }
   }
 
@@ -134,6 +153,7 @@ module runner {
       childRan' = childRan,
       halted' = halted,
       reported' = reported,
+      rewrites' = rewrites,
     }
   }
 
@@ -148,6 +168,7 @@ module runner {
       childRan' = childRan,
       halted' = halted,
       reported' = reported,
+      rewrites' = rewrites,
     }
   }
 
@@ -161,6 +182,7 @@ module runner {
     childRan' = childRan,
     halted' = true,
     reported' = reported,
+    rewrites' = rewrites,
   }
 
   /// `mark_skipped`: a mutant that was queued when the run halted is reported as skipped.
@@ -172,6 +194,25 @@ module runner {
       phase' = phase.set(i, "done"),
       result' = result.set(i, "skipped"),
       writes' = writes.set(i, writes.get(i) + 1),
+      childRan' = childRan,
+      halted' = halted,
+      reported' = reported,
+      rewrites' = rewrites,
+    }
+  }
+
+  /// `verify_kills`: the same test, the target file loaded a second time, no mutation. A failure
+  /// means the kill was the harness's, not the suite's, and the result becomes `error`.
+  action verifyKill = {
+    nondet i = oneOf(Mutants)
+    all {
+      not(reported),
+      phase.get(i) == "done",
+      result.get(i) == "killed",
+      result' = result.set(i, "error"),
+      rewrites' = rewrites.set(i, rewrites.get(i) + 1),
+      phase' = phase,
+      writes' = writes,
       childRan' = childRan,
       halted' = halted,
       reported' = reported,
@@ -187,6 +228,7 @@ module runner {
     childRan' = childRan,
     halted' = halted,
     reported' = true,
+    rewrites' = rewrites,
   }
 
   action step = any {
@@ -198,6 +240,7 @@ module runner {
     timeoutChild,
     halt,
     markSkipped,
+    verifyKill,
     finalize,
   }
 
@@ -216,6 +259,9 @@ module runner {
 
   /// The pool keeps at most `W` children in flight.
   val INV_capacity = runningCount <= W
+
+  /// The kill check runs at most once per mutant and never invents a result.
+  val INV_rewrite_only_kills = Mutants.forall(i => rewrites.get(i) <= 1)
 
   /// A report is only emitted once every mutant is done, so the pool never loses work.
   val INV_report_complete = reported implies doneCount == N

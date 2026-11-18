@@ -33,7 +33,7 @@ Run it with:
 bundle exec mutation run app --setup=mutation.rb --jobs=4 --timeout=5
 ```
 
-The CLI applies the four hooks at fixed points:
+The CLI applies the hooks at fixed points:
 
 | Hook | Process | When |
 | --- | --- | --- |
@@ -45,8 +45,15 @@ The CLI applies the four hooks at fixed points:
 | `before_test_run` | each child | after the mutation is applied, before the tests run |
 
 A hook that raises stops the campaign with exit 2. A red suite stops it too, unless you pass
-`--no-baseline`: the coverage pass already runs every test once, so a test that fails with no
-mutation applied would kill every mutant it covers and produce a fake score.
+`--no-baseline`: a test that fails with no mutation applied would kill every mutant it covers and
+produce a fake score. The coverage pass already runs every test once and reports what failed; with
+`--no-coverage` a forked or spawned child runs the whole suite with no mutation applied before the
+campaign starts.
+
+Two neutral children use the same hooks as a mutant: the baseline above, and the kill check that
+re-runs one failing test with the file loaded a second time and no mutation. Their `child_start`
+index is the mutant's index, or `-1` for the baseline, so a hook that clones a database per index
+gives the baseline its own copy.
 
 ## Why eager load
 
@@ -141,5 +148,11 @@ that boot, so use `--since` (or `--diff`) to keep the mutant count up when itera
   `undef` raises `NameError` before the mutation is applied. The mutant is reported as `error`.
   Run that campaign with `--isolation=process`, where the mutated file is loaded once into a fresh
   process and the original is never evaluated.
+- A file that runs code at load time can be observed twice by fork isolation, because the mutated
+  file is re-evaluated over the parent's copy. A test that counts what the file registered then
+  fails without the mutation having caused it. For those files the runner re-runs the failing test
+  with the file loaded a second time and no mutation; if it fails there too, the kill is reported
+  as `error` with `unverified kill` rather than as a kill. Registration in a Rails initializer is
+  the common trigger. `--isolation=process` does not have this failure mode.
 - `Bundler` has to be set up before the campaign: run `bundle exec mutation ...`, or point
   `BUNDLE_PATH` at the same bundle the tests use.

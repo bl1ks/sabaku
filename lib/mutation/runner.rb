@@ -11,6 +11,7 @@ require_relative "cache"
 require_relative "coverage_map"
 require_relative "errors"
 require_relative "fingerprint"
+require_relative "load_hazard"
 require_relative "result"
 require_relative "source"
 
@@ -24,6 +25,13 @@ module Mutation
   #        child exits 1            -> killed
   #        child killed by signal   -> timeout
   #        anything/everything else -> error
+  #
+  # Two checks guard the score, both built from the same job shape as a mutant
+  # and both skipped when the project turns --no-baseline on:
+  #
+  #   baseline   every test, no mutation, on the campaign's own isolation surface
+  #   kill check one test that failed, with the target file loaded a second time
+  #              and no mutation, for files that run code at load time
   #
   # The parent preloads the adapter once, then forks one child per mutant (the
   # fast path) or spawns a fresh Ruby running runtime/bootstrap.rb (the portable
@@ -41,7 +49,12 @@ module Mutation
     end
 
     Job = Struct.new(:pid, :reader, :started_at, :deadline, :entry, :temp_path, :pgroup,
-                     keyword_init: true)
+                     :control, keyword_init: true)
+
+    # A run of the same child shape with no mutation applied. `reload` re-executes
+    # the target file first, which is what the fork path does to a mutant, so a
+    # verdict here answers "did the harness itself break this test".
+    Control = Struct.new(:key, :index, :ids, :reload, :path, :text, keyword_init: true)
 
     def initialize(config, analyzer: nil, adapter:, coverage_map: nil)
       @config = config
@@ -53,6 +66,7 @@ module Mutation
       @isolation = (config.respond_to?(:isolation) ? config.isolation : :fork).to_sym
       @coverage_enabled = config.respond_to?(:coverage) ? config.coverage : true
       @fail_fast = config.respond_to?(:fail_fast) ? config.fail_fast : false
+      @baseline = config.respond_to?(:baseline) ? config.baseline : true
       @halted = false
       @cache = Cache.new(Cache.default_path(config), enabled: !Cache.disabled?)
       @source_cache = {}
@@ -60,6 +74,8 @@ module Mutation
       @all_test_ids = nil
       @temp_dir = nil
       @fingerprint = nil
+      @controls = {}
+      @load_hazards = {}
     end
 
     # mutants: Array[Mutant] -> Array[Result] in the same order.
@@ -205,10 +221,13 @@ module Mutation
         @adapter.preload!
         Boot.fire(@config, :after_boot)
         Boot.fire(@config, :before_fork)
+        verify_baseline!
         run_pool(entries) { |entry| start_fork_job(entry) }
+        verify_kills(entries)
       when :process
         # No parent preload needed unless selection was disabled and test_ids
         # were enumerated above; the bootstrap preloads in its own process.
+        verify_baseline!
         run_pool(entries) { |entry| start_process_job(entry) }
       else
         raise Mutation::Error,
@@ -219,8 +238,8 @@ module Mutation
     # At most @jobs children in flight. IO.select wakes us on a completion
     # signal or at the nearest deadline, so one slow/timed-out child never
     # blocks the others.
-    def run_pool(entries)
-      queue = entries.dup
+    def run_pool(items, controls: false)
+      queue = items.dup
       active = []
 
       loop do
@@ -253,7 +272,7 @@ module Mutation
           active.delete(job)
         end
       end
-      mark_skipped(queue)
+      mark_skipped(queue) unless controls
     ensure
       active.each do |job|
         kill_process(job)
@@ -263,6 +282,8 @@ module Mutation
         rescue IOError
           nil
         end
+        next if job.control
+
         job.entry.result ||= error_result(job.entry, "runner aborted before the child finished")
       end
     end
@@ -307,17 +328,28 @@ module Mutation
       Job.new(pid: pid, reader: reader, started_at: started,
               deadline: started + @timeout, entry: entry, pgroup: false)
     rescue StandardError => e
-      begin
-        writer.close if defined?(writer) && writer && !writer.closed?
-      rescue IOError
-        nil
-      end
-      begin
-        reader.close if defined?(reader) && reader && !reader.closed?
-      rescue IOError
-        nil
-      end
+      close_quietly(writer)
+      close_quietly(reader)
       entry.result ||= error_result(entry, "#{e.class}: #{e.message}")
+      nil
+    end
+
+    def start_control_job(control)
+      reader, writer = IO.pipe
+      started = clock
+
+      pid = fork do
+        reader.close
+        control_child(control, writer)
+      end
+
+      writer.close
+      Job.new(pid: pid, reader: reader, started_at: started,
+              deadline: started + @timeout, control: control, pgroup: false)
+    rescue StandardError => e
+      close_quietly(writer)
+      close_quietly(reader)
+      @controls[control.key] = { ok: false, failed_id: nil, message: "#{e.class}: #{e.message}" }
       nil
     end
 
@@ -335,9 +367,28 @@ module Mutation
         exit!(2)
       end
 
+      run_tests(entry.selected_ids, writer)
+    end
+
+    def control_child(control, writer)
+      begin
+        Boot.fire(@config, :child_start, control.index)
+        if control.reload
+          absolute = File.expand_path(control.path.to_s)
+          quietly { TOPLEVEL_BINDING.eval(control.text || File.read(absolute), absolute, 1) }
+        end
+      rescue Exception => e # rubocop:disable Lint/RescueException
+        write_payload(writer, "boot_error" => true, "error" => describe_exception(e))
+        exit!(2)
+      end
+
+      run_tests(control.ids, writer)
+    end
+
+    def run_tests(ids, writer)
       begin
         Boot.fire(@config, :before_test_run)
-        outcome = @adapter.run(entry.selected_ids)
+        outcome = @adapter.run(ids)
       rescue Exception => e # rubocop:disable Lint/RescueException
         write_payload(writer, "boot_error" => true, "error" => describe_exception(e))
         exit!(2)
@@ -353,21 +404,44 @@ module Mutation
     # ---- process isolation --------------------------------------------------
 
     def start_process_job(entry)
-      path = temp_file_for(entry)
-      File.write(path, entry.mutant.splice(entry.source_text))
+      spawn_process(
+        entry,
+        text: entry.mutant.splice(entry.source_text),
+        ids: entry.selected_ids,
+        path: entry.mutant.path.to_s,
+        neutral: false
+      )
+    end
+
+    # The baseline in process isolation: a bare child that boots the project as a
+    # mutant child would, with no mutation applied at all.
+    def start_process_control_job(control)
+      spawn_process(
+        control,
+        text: control.text,
+        ids: control.ids,
+        path: control.path.to_s,
+        neutral: control.text.nil?
+      )
+    end
+
+    def spawn_process(subject, text:, ids:, path:, neutral:)
+      temporary = temp_file_for(subject)
+      File.write(temporary, text.to_s)
 
       reader, writer = IO.pipe
       environment = {
         "RUBY_MUTATION_ROOT" => @adapter.root.to_s,
         "RUBY_MUTATION_ADAPTER" => @adapter.name.to_s,
-        "RUBY_MUTATION_TEST_IDS" => JSON.generate(entry.selected_ids.map(&:to_s)),
-        "RUBY_MUTATION_MUTANT_PATH" => entry.mutant.path.to_s,
-        "RUBY_MUTATION_MUTATED_FILE" => path,
+        "RUBY_MUTATION_TEST_IDS" => JSON.generate(ids.map(&:to_s)),
+        "RUBY_MUTATION_MUTANT_PATH" => path,
+        "RUBY_MUTATION_MUTATED_FILE" => temporary,
         "RUBY_MUTATION_PAYLOAD_FD" => "3",
-        "RUBY_MUTATION_CHILD_INDEX" => entry.index.to_s,
+        "RUBY_MUTATION_CHILD_INDEX" => subject.index.to_s,
         "RUBY_MUTATION_ENV" => JSON.generate(@config.env),
         "RUBY_MUTATION_REQUIRES" => JSON.generate(@config.requires),
-        "RUBY_MUTATION_SETUP" => @config.setup_path.to_s
+        "RUBY_MUTATION_SETUP" => @config.setup_path.to_s,
+        "RUBY_MUTATION_NEUTRAL" => neutral ? "1" : "0"
       }
       started = clock
 
@@ -380,20 +454,18 @@ module Mutation
       )
 
       writer.close
-      Job.new(pid: pid, reader: reader, started_at: started,
-              deadline: started + @timeout, entry: entry, temp_path: path, pgroup: true)
+      Job.new(pid: pid, reader: reader, started_at: started, deadline: started + @timeout,
+              entry: subject.respond_to?(:mutant) ? subject : nil,
+              control: subject.respond_to?(:key) ? subject : nil,
+              temp_path: temporary, pgroup: true)
     rescue StandardError => e
-      begin
-        writer.close if defined?(writer) && writer && !writer.closed?
-      rescue IOError
-        nil
+      close_quietly(writer)
+      close_quietly(reader)
+      if subject.respond_to?(:key)
+        @controls[subject.key] = { ok: false, failed_id: nil, message: "#{e.class}: #{e.message}" }
+      else
+        subject.result ||= error_result(subject, "#{e.class}: #{e.message}")
       end
-      begin
-        reader.close if defined?(reader) && reader && !reader.closed?
-      rescue IOError
-        nil
-      end
-      entry.result ||= error_result(entry, "#{e.class}: #{e.message}")
       nil
     end
 
@@ -409,15 +481,21 @@ module Mutation
       _pid, status = reap(job.pid)
       duration = clock - job.started_at
 
-      job.entry.result =
-        if timed_out
-          Result.new(mutant: job.entry.mutant, status: :timeout, duration: duration,
-                     message: "exceeded #{format('%.3f', @timeout)}s deadline")
-        else
-          classify(job.entry, payload, status, duration)
-        end
+      if job.control
+        record_control(job.control, payload, status, timed_out)
+      elsif timed_out
+        job.entry.result = Result.new(mutant: job.entry.mutant, status: :timeout, duration: duration,
+                                      message: "exceeded #{format('%.3f', @timeout)}s deadline")
+      else
+        job.entry.result = classify(job.entry, payload, status, duration)
+      end
     rescue StandardError => e
-      job.entry.result ||= error_result(job.entry, "#{e.class}: #{e.message}", clock - job.started_at)
+      if job.control
+        @controls[job.control.key] = { ok: false, failed_id: nil,
+                                      message: "#{e.class}: #{e.message}" }
+      else
+        job.entry.result ||= error_result(job.entry, "#{e.class}: #{e.message}", clock - job.started_at)
+      end
     ensure
       begin
         job.reader.close unless job.reader.closed?
@@ -452,6 +530,122 @@ module Mutation
         "inconsistent child result (exit #{exit_status.inspect}, payload #{payload.inspect})",
         duration
       )
+    end
+
+    # ---- neutral runs -------------------------------------------------------
+
+    # -> {key => {ok:, failed_id:, message:}}
+    def run_controls(controls)
+      return {} if controls.empty?
+
+      @controls = {}
+      # --fail-fast stops the mutant pool, not the check on what it already
+      # reported; a control run is a question about the harness, not a mutant.
+      halted = @halted
+      @halted = false
+      begin
+        if @isolation == :fork
+          run_pool(controls, controls: true) { |control| start_control_job(control) }
+        else
+          run_pool(controls, controls: true) { |control| start_process_control_job(control) }
+        end
+      ensure
+        @halted = halted
+      end
+      @controls
+    end
+
+    def record_control(control, payload, status, timed_out)
+      @controls[control.key] =
+        if timed_out
+          { ok: false, failed_id: nil, message: "exceeded #{format('%.3f', @timeout)}s deadline" }
+        elsif payload.nil?
+          { ok: false, failed_id: nil,
+            message: "child produced no completion signal (exit #{status && status.exitstatus})" }
+        elsif payload["boot_error"] || (status && status.exitstatus == 2)
+          { ok: false, failed_id: payload["failed_id"],
+            message: payload["error"] || "child boot error" }
+        elsif payload["ok"] && status && status.exitstatus.zero?
+          { ok: true, failed_id: nil, message: nil }
+        else
+          { ok: false, failed_id: payload["failed_id"], message: payload["error"] }
+        end
+    end
+
+    # The suite with no mutation applied, on the surface this campaign will use.
+    # With coverage on, the sampler already ran every test once and reported the
+    # baseline; without it nothing has checked the suite, and a red suite would
+    # score every covered mutant as killed.
+    def verify_baseline!
+      return unless @baseline && !@coverage_enabled
+
+      ids = @adapter.test_ids
+      return if ids.empty?
+
+      control = Control.new(key: :baseline, index: -1, ids: ids, reload: false)
+      verdict = run_controls([control]).fetch(:baseline)
+      return if verdict[:ok]
+
+      detail = verdict[:failed_id].to_s
+      detail = "#{detail} (#{verdict[:message]})" if verdict[:message]
+      detail = verdict[:message].to_s if detail.empty?
+      raise BaselineError,
+            "the suite is not green with no mutation applied: #{detail}. Every mutant " \
+            "that test covers would be reported as killed. Fix the suite, or pass " \
+            "--no-baseline to score it anyway."
+    end
+
+    # A kill is evidence only if the same test passes with the target file loaded a
+    # second time and no mutation applied. Fork isolation applies a mutant by
+    # re-executing the file over the parent's copy, so a file that registers itself
+    # at load time runs that registration twice and fails a test the mutation never
+    # touched. Files with nothing but definitions cannot show this, so only those
+    # that run unknown code at load time are checked.
+    def verify_kills(entries)
+      return unless @baseline
+
+      suspects = entries.select do |entry|
+        result = entry.result
+        result && result.killed? && result.failed_test && load_sensitive?(entry.mutant.path)
+      end
+      return if suspects.empty?
+
+      controls = suspects.uniq { |entry| kill_key(entry) }.map do |entry|
+        Control.new(key: kill_key(entry), index: entry.index, ids: [entry.result.failed_test],
+                    reload: true, path: entry.mutant.path, text: entry.source_text)
+      end
+      verdicts = run_controls(controls)
+
+      suspects.each do |entry|
+        verdict = verdicts[kill_key(entry)]
+        next if verdict.nil? || verdict[:ok]
+
+        detail = verdict[:message] ? " (#{verdict[:message]})" : ""
+        message = "unverified kill: #{verdict[:failed_id] || "a test"} fails with no mutation " \
+                  "applied once #{entry.mutant.path} is loaded a second time#{detail}"
+        entry.result = Result.new(mutant: entry.mutant, status: :error,
+                                  duration: entry.result.duration,
+                                  failed_test: entry.result.failed_test, message: message)
+      end
+    end
+
+    def kill_key(entry)
+      [entry.mutant.path, entry.result.failed_test.to_s]
+    end
+
+    # Memoised per file: one AST walk says whether the fork path's extra load can
+    # be observed by a test at all.
+    def load_sensitive?(path)
+      absolute = File.expand_path(path.to_s)
+      @load_hazards.fetch(absolute) do
+        @load_hazards[absolute] = LoadHazard.sensitive?(source_for(path).ast)
+      end
+    end
+
+    def close_quietly(io)
+      io.close if io && !io.closed?
+    rescue IOError
+      nil
     end
 
     def read_payload(reader)
