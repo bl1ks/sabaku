@@ -157,7 +157,8 @@ contract:
 
 ## Keeping it in step
 
-The verification describes the code at the last commit that changed a covered file. See
+The verification describes the code at the last commit that changed a covered file, at
+the six-step bound (see "What Quint checks"). See
 `.dsh/skills/formal-verification/SKILL.md` for the coverage record and what to do when
 the covered code changes.
 

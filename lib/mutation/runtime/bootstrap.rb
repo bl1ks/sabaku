@@ -17,10 +17,13 @@
 #   RUBY_MUTATION_NEUTRAL      "1" boots the project with no mutation applied
 #                              (the baseline check in process isolation)
 #
-# The mutated source is loaded first, then the original target path is put in
-# $LOADED_FEATURES so the project's `require "target"` (in the test files) is a
-# no-op and the mutated definitions stay in place. Then the adapter preloads the
-# test suite and runs exactly the requested ids.
+# The mutated source is applied at the target file's first load. The adapter
+# preloads the project in its normal order and a loader substitutes the mutated
+# source when the project requires the target, so a file that uses the project
+# at load time sees the project already loaded. A file the project never loads
+# is applied after the preload. Then the child runs exactly the requested ids.
+#
+# A neutral child skips the loader and boots the project untouched.
 #
 # Exit contract (shared with fork isolation):
 #   0 = selected tests passed   -> survived
@@ -50,12 +53,13 @@ module Mutation
 
           @adapter = build_adapter(adapter_name)
           prepare_load_path(root)
+          install_loader(target_path, mutated_file, root) unless neutral?
           @setup = load_setup
           apply_env
-          apply_requires
           fire(:child_start, index)
-          load_mutated_target(target_path, mutated_file, root) unless neutral?
+          apply_requires
           @adapter.preload!
+          apply_loader
           fire(:after_boot)
           fire(:before_test_run)
           outcome = @adapter.run(test_ids)
@@ -82,9 +86,9 @@ module Mutation
         Mutation::Adapter.for(name, nil)
       end
 
-      # The mutated file is loaded before the adapter preloads the tests, so the
-      # project's own lib/test/spec roots must already be on the load path for
-      # its top-level `require`s to resolve exactly as they do normally.
+      # The loader intercepts the project's own `require`s, so its lib/test/spec
+      # roots must already be on the load path for them to resolve exactly as
+      # they do normally.
       def prepare_load_path(root)
         %w[lib test spec].each do |directory|
           path = File.join(root, directory)
@@ -95,26 +99,33 @@ module Mutation
         end
       end
 
-      # The one load-bearing trick: re-execute the spliced file, then hide the
-      # original from `require` so the test files cannot undo the mutation.
-      #
-      # eval with the original absolute path, not load of the temp file: a file that
-      # uses require_relative or __FILE__ must see the path it is used to, or a
-      # mutation of the library's own source breaks on `require_relative "sibling"`.
-      def load_mutated_target(target_path, mutated_file, root)
-        absolute = File.expand_path(target_path.to_s, root)
-        # Constant redefinitions are expected when a file is re-executed.
-        quietly { TOPLEVEL_BINDING.eval(File.read(mutated_file), absolute, 1) }
+      # The one load-bearing trick: the child's suite loads in its normal order,
+      # and FirstLoad substitutes the mutated source at the moment the project
+      # requires the target. eval keeps the original absolute path, not the temp
+      # file's: a file that uses require_relative or __FILE__ must see the path
+      # it is used to.
+      def install_loader(target_path, mutated_file, root)
+        require "mutation/runtime/first_load"
+        @loader = FirstLoad.new(target: target_path, source: File.read(mutated_file), root: root,
+                                shim_dir: File.dirname(mutated_file))
+        @loader.install
+      end
 
-        features = [absolute]
-        begin
-          features << File.realpath(absolute)
-        rescue SystemCallError
-          nil
+      # The suite has loaded by now. If the project never required the target,
+      # apply it here. If something loaded it without going through the loader
+      # (require_relative, or a file the -r flags loaded first), re-evaluating
+      # would be a second load, so name the cause instead.
+      def apply_loader
+        return if @loader.nil? || @loader.applied?
+
+        if @loader.loaded_without_apply?
+          raise Mutation::Error,
+                "#{@loader.target} was loaded before the mutation could be applied " \
+                "(require_relative or a preloaded file); this mutant cannot be measured " \
+                "on a first-load surface"
         end
-        features.each do |feature|
-          $LOADED_FEATURES << feature unless $LOADED_FEATURES.include?(feature)
-        end
+
+        @loader.apply
       end
 
       # A process-isolated child starts from a bare Ruby: every hook the fork
@@ -146,14 +157,6 @@ module Mutation
 
       def fire(event, *args)
         @setup&.fire(event, *args)
-      end
-
-      def quietly
-        previous = $VERBOSE
-        $VERBOSE = nil
-        yield
-      ensure
-        $VERBOSE = previous
       end
 
       def payload_io
