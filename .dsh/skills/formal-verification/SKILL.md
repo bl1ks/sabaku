@@ -65,7 +65,8 @@ fault variant that stops violating its invariant, or a finding that stops reprod
 - `formal/lean/Mutation/Cache.lean`: `Cache#fetch`, `Cache#store`, `Cache#load_entries`,
   `Runner#persist_results`.
 - `formal/quint/runner.qnt`: `Runner#run_pool`, `prepare_entry`'s uncovered path, `finish_job`,
-  `classify`, `halt_fast_fail`, `mark_skipped`, `Report#score`'s denominator.
+  `classify`, `halt_fast_fail`, `mark_skipped`, `attribute_unmeasured`, `measure_first_load`'s
+  first-load child, `Report#score`'s denominator.
 - `formal/regressions.sh`: the four fixed findings, end to end through the CLI and the library.
 - `formal/replay/emit.rb`: the real `Analyzer` over two fixtures and
   `formal/replay/corpus/kitchen_sink.rb`, with every operator in `Registry.ids`, `--per-line=2`.

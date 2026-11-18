@@ -6,10 +6,14 @@
 /// exit contract already says a selected test failed), it fails to load (error, pending
 /// attribution), or the parent kills it at its deadline (timeout).
 ///
-/// `attribute_unmeasured` runs after the pool drains and rewrites a boot-error result to
-/// `skipped` when a reload control proves the file, not the mutation, is why the child could not
-/// load. It is the `attributeBootError` action. A harness failure during the tests stays `error`:
-/// it is a different payload key, and the reload control cannot explain it.
+/// `attribute_unmeasured` runs after the pool drains. A boot-error is not an outcome yet: the
+/// mutant sits in `unmeasured` until a reload control decides. If the file, not the mutation, is
+/// why the fork child could not load, the mutant is retried once on the first-load surface (a
+/// fresh process whose suite loads in its normal order and whose mutation is the target's first
+/// load). `retryChild` models that move, and the second child's outcome is the mutant's only
+/// write. A first-load child that also fails to load leaves the mutant `skipped`
+/// (`attributeBootError`). A harness failure during the tests stays `error`: it is a different
+/// payload key, and the reload control cannot explain it.
 ///
 /// Two checks sit around the pool and are modelled only where they change a result:
 ///
@@ -48,6 +52,8 @@ module runner {
   /// `--fail-fast` ignored: children keep starting after the first survivor, and the
   /// remaining queue is skipped without a survivor.
   pure val FAULT_ignore_fail_fast = false
+  /// A boot error promoted to a measured result without the first-load child.
+  pure val FAULT_retry_without_child = false
 
   pure def faultOr(f: bool, guard: bool): bool = f or guard
 
@@ -61,9 +67,12 @@ module runner {
   var rewrites: int -> int
   /// Whether a child was started for the mutant, so `uncovered` can be checked against it.
   var childRan: int -> bool
-  /// Whether the child failed while loading the file rather than while running the tests, so the
-  /// post-pool attribution can turn its `error` into `skipped`.
+  /// Whether a child failed while loading the file rather than while running the tests, so the
+  /// post-pool attribution can either retry it or report `skipped`.
   var bootFailed: int -> bool
+  /// Whether the mutant's measured child ran on the first-load surface (the retry) rather than
+  /// in a fork of the preloaded parent.
+  var firstLoad: int -> bool
   /// Whether `--fail-fast` has stopped scheduling.
   var halted: bool
   /// Whether the report has been emitted.
@@ -78,6 +87,10 @@ module runner {
   def runningCount: int = countPhase("running")
   def doneCount: int = countPhase("done")
 
+  /// Every mutant is done or waiting for attribution: the pool has drained.
+  def settled: bool =
+    Mutants.forall(i => phase.get(i) == "done" or phase.get(i) == "unmeasured")
+
   /// `Report#score`'s denominator.
   def den: int = countStatus("killed") + countStatus("survived") + countStatus("timeout")
 
@@ -88,6 +101,7 @@ module runner {
     rewrites' = Map(0 -> 0, 1 -> 0, 2 -> 0),
     childRan' = Map(0 -> false, 1 -> false, 2 -> false),
     bootFailed' = Map(0 -> false, 1 -> false, 2 -> false),
+    firstLoad' = Map(0 -> false, 1 -> false, 2 -> false),
     halted' = false,
     reported' = false,
   }
@@ -102,6 +116,7 @@ module runner {
       writes' = writes.set(i, writes.get(i) + 1),
       childRan' = childRan,
       bootFailed' = bootFailed,
+      firstLoad' = firstLoad,
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
@@ -117,6 +132,7 @@ module runner {
       writes' = writes,
       childRan' = childRan,
       bootFailed' = bootFailed,
+      firstLoad' = firstLoad,
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
@@ -135,6 +151,7 @@ module runner {
       writes' = writes,
       childRan' = childRan.set(i, true),
       bootFailed' = bootFailed,
+      firstLoad' = firstLoad,
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
@@ -152,6 +169,7 @@ module runner {
       writes' = writes.set(i, writes.get(i) + 1),
       childRan' = childRan,
       bootFailed' = bootFailed,
+      firstLoad' = firstLoad,
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
@@ -169,23 +187,67 @@ module runner {
       writes' = writes.set(i, writes.get(i) + 1),
       childRan' = childRan,
       bootFailed' = bootFailed,
+      firstLoad' = firstLoad,
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
     }
   }
 
-  /// The child could not load the mutated file (`boot_error`). It stays `error` until
-  /// `attributeBootError` decides whether a reload control explains it.
+  /// The child could not load the mutated file (`boot_error`). No outcome yet: the reload
+  /// control decides between a retry on the first-load surface and `skipped`.
   action bootFailChild = {
     nondet i = oneOf(Mutants)
     all {
       phase.get(i) == "running",
-      phase' = phase.set(i, "done"),
-      result' = result.set(i, "error"),
-      writes' = writes.set(i, writes.get(i) + 1),
-      childRan' = childRan,
+      phase' = phase.set(i, "unmeasured"),
+      result' = result,
+      writes' = writes,
+      childRan' = childRan.set(i, true),
       bootFailed' = bootFailed.set(i, true),
+      firstLoad' = firstLoad,
+      halted' = halted,
+      reported' = reported,
+      rewrites' = rewrites,
+    }
+  }
+
+  /// The reload control proved the file, not the mutation, is why the fork child failed. Queue
+  /// the mutant again, this time for the first-load surface.
+  action retryChild = {
+    nondet i = oneOf(Mutants)
+    all {
+      not(reported),
+      settled,
+      phase.get(i) == "unmeasured",
+      not(firstLoad.get(i)),
+      phase' = phase.set(i, "queued"),
+      result' = result,
+      writes' = writes,
+      childRan' = childRan,
+      bootFailed' = bootFailed,
+      firstLoad' = firstLoad.set(i, true),
+      halted' = halted,
+      reported' = reported,
+      rewrites' = rewrites,
+    }
+  }
+
+  /// Fault only: a measured result for a boot error, with no first-load child behind it.
+  action retryWithoutChild = {
+    nondet i = oneOf(Mutants)
+    all {
+      FAULT_retry_without_child,
+      not(reported),
+      settled,
+      phase.get(i) == "unmeasured",
+      not(firstLoad.get(i)),
+      phase' = phase.set(i, "done"),
+      result' = result.set(i, "killed"),
+      writes' = writes.set(i, 1),
+      childRan' = childRan,
+      bootFailed' = bootFailed,
+      firstLoad' = firstLoad,
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
@@ -203,6 +265,7 @@ module runner {
       writes' = writes.set(i, writes.get(i) + 1),
       childRan' = childRan,
       bootFailed' = bootFailed,
+      firstLoad' = firstLoad,
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
@@ -219,6 +282,7 @@ module runner {
       writes' = writes.set(i, writes.get(i) + 1),
       childRan' = childRan,
       bootFailed' = bootFailed,
+      firstLoad' = firstLoad,
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
@@ -234,6 +298,7 @@ module runner {
     writes' = writes,
     childRan' = childRan,
     bootFailed' = bootFailed,
+    firstLoad' = firstLoad,
     halted' = true,
     reported' = reported,
     rewrites' = rewrites,
@@ -245,11 +310,13 @@ module runner {
     all {
       faultOr(FAULT_ignore_fail_fast, halted),
       phase.get(i) == "queued",
+      not(firstLoad.get(i)),
       phase' = phase.set(i, "done"),
       result' = result.set(i, "skipped"),
       writes' = writes.set(i, writes.get(i) + 1),
       childRan' = childRan,
       bootFailed' = bootFailed,
+      firstLoad' = firstLoad,
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
@@ -270,30 +337,29 @@ module runner {
       writes' = writes,
       childRan' = childRan,
       bootFailed' = bootFailed,
+      firstLoad' = firstLoad,
       halted' = halted,
       reported' = reported,
     }
   }
 
-  /// `attribute_unmeasured`: after the pool drains, one reload control per file decides whether
-  /// the boot error was the file's (it cannot be reloaded) or the mutation's (it does not load).
-  /// Either way the mutant is `skipped`, because no child measured it.
+  /// `attribute_unmeasured`: after the pool drains, the first-load child still could not load
+  /// the file (or the reload control proved the mutation unloadable), so no child measured it.
   action attributeBootError = {
     nondet i = oneOf(Mutants)
     all {
       not(reported),
-      doneCount == N,
-      phase.get(i) == "done",
-      result.get(i) == "error",
-      bootFailed.get(i),
+      settled,
+      phase.get(i) == "unmeasured",
+      phase' = phase.set(i, "done"),
       result' = result.set(i, "skipped"),
-      rewrites' = rewrites.set(i, rewrites.get(i) + 1),
-      phase' = phase,
-      writes' = writes,
+      writes' = writes.set(i, 1),
       childRan' = childRan,
       bootFailed' = bootFailed,
+      firstLoad' = firstLoad,
       halted' = halted,
       reported' = reported,
+      rewrites' = rewrites,
     }
   }
 
@@ -305,6 +371,7 @@ module runner {
     writes' = writes,
     childRan' = childRan,
     bootFailed' = bootFailed,
+    firstLoad' = firstLoad,
     halted' = halted,
     reported' = true,
     rewrites' = rewrites,
@@ -321,6 +388,8 @@ module runner {
     timeoutChild,
     halt,
     markSkipped,
+    retryChild,
+    retryWithoutChild,
     attributeBootError,
     verifyKill,
     finalize,
@@ -364,6 +433,12 @@ module runner {
   /// path starts a child and then reports `skipped`, so attribution cannot hide a real kill.
   val INV_skip_from_boot_error =
     Mutants.forall(i => (result.get(i) == "skipped" and childRan.get(i)) implies bootFailed.get(i))
+
+  /// A boot error becomes a measured result only through a child on the first-load surface.
+  val INV_retry_measured_once =
+    Mutants.forall(i =>
+      (bootFailed.get(i) and writes.get(i) == 1 and result.get(i) != "skipped")
+        implies firstLoad.get(i))
 
   /// A skipped mutant that never started was left in the queue by `--fail-fast`, so a survivor
   /// stopped the run. Attribution mutants ran and are covered by the invariant above.

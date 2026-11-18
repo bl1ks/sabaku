@@ -23,3 +23,4 @@ flip run_uncovered FAULT_run_uncovered
 flip early_report FAULT_early_report
 flip ignore_capacity FAULT_ignore_capacity
 flip ignore_fail_fast FAULT_ignore_fail_fast
+flip retry_without_child FAULT_retry_without_child

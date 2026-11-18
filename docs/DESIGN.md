@@ -131,7 +131,7 @@ Runner.new(config, analyzer:, adapter:, coverage_map:) #call -> Array[Result]
 Result = Data.define(:mutant, :status, :duration, :failed_test, :message)
 # status: :killed | :survived | :timeout | :error | :uncovered | :skipped
 # :skipped means --fail-fast stopped before this mutant was scheduled, or no
-# child could measure it (the file cannot be reloaded, or the mutation does not load)
+# child could measure it (the mutation does not load, on either surface)
 ```
 
 Mutant lifecycle, the whole state machine:
@@ -144,8 +144,10 @@ candidate --(covering tests)--> queued --> running --(child exits 0)--> survived
                                                  |--(child exits 1)--> killed
                                                  |--(child killed by signal / deadline)--> timeout
                                                  |--(child exits 1 with no summary)--> killed
-                                                 |--(file cannot be reloaded)--> skipped
                                                  |--(mutated file does not load)--> skipped
+                                                 |--(file cannot be reloaded)--> first-load child
+                                                 |     |--(measured)--> survived | killed | timeout
+                                                 |     '--(does not load)--> skipped
                                                  '--(other child failure)--> error
 candidate --(--fail-fast saw a survivor first)--> skipped
 ```
@@ -161,21 +163,42 @@ file after the splice:
 
 1. Parent: `preload!` loads the framework and the project tests once. Test code is now resident.
 2. Per mutant: `fork`.
-3. Child: write `mutant.splice(source.text)` to `Dir.mktmpdir/<basename>.rb`, then `load` it.
-   Re-executing the file re-opens the classes it declares and replaces their method bodies.
+3. Child: `eval(mutant.splice(source.text), absolute_path, 1)`. Re-executing the file re-opens the
+   classes it declares and replaces their method bodies. The original path is kept so
+   `require_relative` and `__FILE__` resolve as they do normally.
 4. Child: `adapter.run(selected_ids)`, then `exit!(0)` or `exit!(1)`.
 5. Parent: wait with deadline, classify.
 
-Limits, documented in the README and reported rather than silently passed: mutations inside
-`define_method` blocks, inside `Struct`/`Data` field lists, or in a file whose reload redefines a
-constant differently raise or warn on reload. A child that raises during `load` is not attributed
-to the mutant until the runner has evaluated the original file once more in the same child shape.
-If the unmutated file also raises, the file cannot be reloaded in fork isolation and the mutant is
-`:skipped` with the file's error; if only the mutated file raises, the mutation does not load and
-the mutant is `:skipped` with that error. Neither is `:survived`, and neither is scored.
+A file that cannot be loaded twice is not a mutation that cannot be measured. After the pool
+drains, one reload control per file re-evaluates the unmutated file in the same child shape. If it
+raises, the file is the reason the fork child failed, so the mutant moves to the first-load
+surface. If the unmutated file loads, the mutation is unloadable and the mutant is `:skipped` with
+that error.
+
+The first-load surface is `runtime/bootstrap.rb` in a fresh process. The project's suite loads in
+its normal order, and `runtime/first_load.rb` substitutes the mutated source at the moment the
+project loads the target: a `require` is answered with an `eval` of the spliced text, and an
+`autoload` registered for the target is redirected to a generated shim that does the same. The
+mutation is therefore the file's first load, with the rest of the project already loaded. A
+pending autoload for the same constant is removed first; otherwise the file's own `module` line
+would fire it and lose the constant.
+
+The child's deadline carries the measured cost of a bare first-load child (one neutral boot), so
+the preload is not charged to the mutant. A boot error on this surface means the suite cannot load
+with the mutation, and the mutant is `:skipped` with that reason. A kill on either surface is kept
+only when the same test passes with no mutation applied on that surface; a kill that only the
+second load or only the first load caused becomes `:error` with `unverified kill`.
+
+Limits, documented in the README and reported rather than silently passed:
+`require_relative` and files something loaded before the loader was installed cannot be
+intercepted. When the target was already loaded, the child names that instead of evaluating over
+a copy, and the mutant is `:skipped`. Mutations inside `define_method` blocks, inside
+`Struct`/`Data` field lists, or in a file whose reload redefines a constant differently still
+raise, and land in the reload-control branch.
 
 `isolation: :process` replaces steps 2 to 4 with a fresh `ruby` process per mutant running the
-adapter with a filter flag. Slower, and the only option when a project cannot be reloaded.
+adapter with a filter flag; it uses the same first-load loader for every mutant. Slower, and the
+fallback surface for a file that fork isolation cannot load twice.
 
 ## Aridity rules for Ruby (expert())
 

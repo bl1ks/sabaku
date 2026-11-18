@@ -67,8 +67,8 @@ Each row names the property in plain words and the code it mirrors.
 
 ## What Quint checks
 
-`formal/quint/runner.qnt` models preparation, the bounded pool, completion, failure, timeout, and
-the report. The clock is not modelled: no invariant below depends on elapsed time. The deadline
+`formal/quint/runner.qnt` models preparation, the bounded pool, completion, failure, timeout,
+the first-load retry, and the report. The clock is not modelled: no invariant below depends on elapsed time. The deadline
 race is kept as the freedom to time out any running child, which over-approximates the schedules
 `run_pool` produces.
 
@@ -86,18 +86,23 @@ Checked invariants:
   control explained.
 - `INV_skip_without_child_after_survivor`: a skipped mutant that never started was left in the
   queue by `--fail-fast`, so a survivor stopped the run.
-- `INV_rewrite_at_most_once`: a reported result is rewritten at most once, by the kill check or by
-  the boot-error attribution.
+- `INV_rewrite_at_most_once`: a reported result is rewritten at most once, by the kill check.
+- `INV_retry_measured_once`: a boot error becomes a measured result only through a child on the
+  first-load surface.
 
 Two checks sit around the pool and are modelled only where they can change a result. The baseline
 runs before any mutant exists, so it either lets the campaign start or ends it with no result at
-all. The kill check rewrites a reported `killed` to `error`, and the attribution rewrites an
-unexplained boot error to `skipped`; the model records both as `rewrites` rather than as second
-writes, because a second write would make `INV_one_result` say nothing about the pool.
+all. The kill check rewrites a reported `killed` to `error`. The attribution is not a rewrite: a
+boot error leaves the mutant `unmeasured` with no outcome, and either the retry's child writes its
+only result or the attribution writes `skipped`. `INV_one_result` therefore still says something
+about every path that produces a result.
 
-The default gate checks three mutants with two workers up to six steps; `--deep` goes to ten,
-which reaches `finalize` for a campaign with no boot error. Apalache decides every interleaving
-inside the bound, not a sample.
+The default gate checks three mutants with two workers up to six steps. That bound reaches
+preparation, the pool, a boot error, the retry transition and `finalize`. A trace that carries a
+retried mutant to a measured result needs eight steps; `--deep` raises the bound to ten, but the
+ten-step run does not finish inside the gate's budget, so the retried result is checked at six
+steps only through the transition and the invariant that guards it. Apalache decides every
+interleaving inside the bound, not a sample.
 
 Each invariant is shown able to fail: `formal/quint/variants.sh` flips one fault switch in the
 model, and the gate requires the variant to violate an invariant. The variants are generated, not
@@ -145,10 +150,11 @@ contract:
   itself is exact — it runs the same test with the file loaded once more and no mutation.
 - Nothing about performance.
 - Quint is bounded. The honest model is decided for three mutants, two workers, and six steps in
-  the default gate; larger pools are not checked. `--deep` raises the bound to ten steps, which is
-  a complete campaign when no child fails to load. It does not reach the boot-error attribution
-  path, and since that state was added the ten-step run does not finish in the gate's budget, so
-  the runner classification is currently confirmed at six steps.
+  the default gate; larger pools are not checked. `--deep` raises the bound to ten, but the
+  ten-step run does not finish in the gate's budget now that attribution and the first-load retry
+  both extend the path. A retried mutant's measured result is first reachable at eight steps,
+  which is also outside the budget, so the runner classification is currently confirmed at six
+  steps.
 
 ## Findings
 
@@ -166,7 +172,7 @@ the covered code changes.
 
 ```
 bin/formal          # about 4 minutes, six steps
-bin/formal --deep   # ten steps; reaches finalize for a campaign with no boot error
+bin/formal --deep   # ten steps; does not finish in the gate's budget
 ```
 
 The gate fails if a proof is unfinished, a replay record disagrees, the honest model violates an

@@ -60,9 +60,9 @@ survivors:
 Exit codes are `0` ok, `1` when the reported score is below `--min-score`, `2` error,
 so CI can gate on the score. A campaign that loses a mutant for a reason it cannot explain
 exits `2`: the score is computed over the mutants that ran, so a run with errors is not a
-measurement of the suite. A mutant no child could measure (a file that cannot be reloaded,
-or a mutation that does not load) is reported as `skipped` with the reason, stays out of the
-score, and does not fail the run:
+measurement of the suite. A mutant no child could measure (a mutation that does not load on
+either surface) is reported as `skipped` with the reason, stays out of the score, and does not
+fail the run:
 
 ```sh
 mutation run --adapter=rspec --min-score=70 --report=json --output=mutation.json
@@ -193,12 +193,14 @@ These are real and deliberate; know them before trusting a score.
 - **`require_relative` and `__FILE__` resolve against the original path**, because the child
   evaluates the mutated text with that path. Files that depend on load order or on `END` blocks
   may not reload cleanly.
-- **A file that cannot be reloaded is named, not blamed on the mutant.** When a child cannot load
-  its file, the runner evaluates the original file once more in the same child shape. If that
-  second load also raises, every mutant of the file is `skipped` with the file's error, because no
-  mutation of it can be applied in fork isolation. If only the mutated file raises, the mutant
-  itself does not load and is `skipped` with that error. Neither is scored. `--isolation=process`
-  loads each project file once, so it can score files that fork isolation cannot.
+- **A file that cannot be reloaded is measured at its first load.** When a child cannot load its
+  file, the runner evaluates the original file once more in the same child shape. If only the
+  mutated file raises, the mutant does not load and is `skipped` with that error. If the original
+  file also raises, the file cannot be loaded twice, so the mutant is retried in a fresh process
+  where the suite loads in its normal order and the mutation is applied at the target's own
+  `require` or `autoload`: the file's first load. A retry that still cannot load is `skipped`
+  with the reason. Neither is scored. `--isolation=process` uses the same first-load loader for
+  every mutant.
 - **Per-test coverage is collected by running the suite once, instrumented.** On a large suite
   that pass is the dominant fixed cost of a campaign. It is not cached.
 - **`before(:suite)` / `after(:suite)` hooks do not run for a selected subset**, and rspec
