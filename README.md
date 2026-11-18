@@ -138,9 +138,11 @@ CoverageMap (which test hits which line) --- tests_for ---> selected test ids --
 | `str` | non-empty string literal -> `""` | string literals |
 | `literal` | integer and float step by one, array and hash collapse to empty | integer, float, array, hash literals |
 | `selector` | method name swap (`xs.map` -> `xs.each`, `a << 1` -> `a >> 1`) | the method replacement table |
-| `call` | drop the receiver, drop the receiver and message, drop or nil an argument | call sites |
+| `call` | drop the receiver, drop the receiver and message, drop or nil an argument, lift a single argument into the call's place | call sites |
 | `cond` | branch predicate becomes `true` and `false` | `if`, `unless` |
 | `assign` | compound assignment becomes plain assignment (`x += 1` -> `x = 1`) | `+=`, `\|\|=`, `&&=`, ... |
+| `return` | the method's last expression becomes `nil` (`def value; compute; end` -> `nil`) | method bodies |
+| `control` | `break` and `next` swap | `break`, `next` |
 
 Every operator is on by default. An operator widens the candidate pool; `--per-line` decides how
 much of that pool a campaign runs, so `--per-line=1` stays cheap while `--per-line=all` runs the

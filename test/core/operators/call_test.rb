@@ -28,6 +28,15 @@ class CallTest < Minitest::Test
     assert_includes replacements(text), "f(a, nil)\n"
   end
 
+  def test_a_single_argument_takes_the_call_place
+    assert_includes replacements("sanitize(value)\n"), "value\n"
+    assert_empty replacements("sanitize(a, b)\n").select { |result| result == "a\n" }
+  end
+
+  def test_argument_propagation_is_skipped_when_a_block_is_attached
+    refute_includes replacements("each(value) { |v| v }\n"), "value\n"
+  end
+
   def test_keyword_messages_never_go_naked
     assert_empty replacements("x.class\n").select { |text| text.strip == "class" }
   end

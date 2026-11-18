@@ -26,6 +26,13 @@ module KitchenSink
     value << 1
   end
 
+  def self.first_above(values)
+    values.each do |value|
+      next if value.nil?
+      break
+    end
+  end
+
   def self.clamp(value)
     value > LIMIT || value < 0 ? LIMIT : value
   end

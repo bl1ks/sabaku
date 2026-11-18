@@ -82,6 +82,7 @@ Replacement = Data.define(:original, :replacement)
 
 Operator::Registry.ids -> Array[Symbol]         # :aor :ror :lcr :sbr :uoi :bool :str
                                                 # :literal :selector :call :cond :assign
+                                                # :return :control
 Operator::Registry.fetch(id) -> Operator
 Operator::Registry.defaults -> Array[Symbol]    # every id above; depth is --per-line
 ```

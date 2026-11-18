@@ -44,6 +44,7 @@ module Mutation
         mutations.concat(receiver_removal(node, source, original))
         mutations.concat(naked_selector(node, source, arguments))
         mutations.concat(argument_removals(node, source, arguments, original))
+        mutations.concat(argument_propagation(node, source, arguments))
         mutations
       end
 
@@ -109,6 +110,25 @@ module Mutation
         removals
       end
 
+      # `foo(value)` becomes `value`: the call is dropped and its single argument
+      # takes its place. Mutant calls this argument propagation, and it is what
+      # catches a helper that changes its argument instead of returning it.
+      def self.argument_propagation(node, source, arguments)
+        return [] unless arguments.length == 1
+        return [] if node.block
+
+        argument = arguments.first
+        # A bare keyword hash (`a: 1`), a splat, or a block pass is only valid
+        # inside an argument list, so it cannot stand where the call stood.
+        return [] if argument.is_a?(Prism::KeywordHashNode) ||
+                     argument.is_a?(Prism::SplatNode) ||
+                     argument.is_a?(Prism::BlockArgumentNode)
+        return [] unless simple?(argument)
+
+        [Replacement.new(original: source.slice(node),
+                         replacement: source.slice(argument))]
+      end
+
       # A heredoc's node location covers only the opening marker, so splicing
       # its slice would leave the body behind.
       def self.simple?(argument)
@@ -150,7 +170,7 @@ module Mutation
       end
 
       private_class_method :safe?, :receiver_removal, :naked_selector, :argument_removals,
-                           :simple?, :rebuild, :block_pass?
+                           :argument_propagation, :simple?, :rebuild, :block_pass?
     end
   end
 end

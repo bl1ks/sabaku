@@ -7,10 +7,10 @@ class RegistryTest < Minitest::Test
   include CoreTestSupport
 
   def test_exposes_the_operators_in_stable_order
-    expected = %i[aor ror lcr sbr uoi bool str literal selector call cond assign]
+    expected = %i[aor ror lcr sbr uoi bool str literal selector call cond assign return control]
     assert_equal expected, Mutation::Operator::Registry.ids
     assert_equal expected, Mutation::Operator::Registry.defaults
-    assert_equal 12, Mutation::Operator::Registry.all.size
+    assert_equal 14, Mutation::Operator::Registry.all.size
   end
 
   def test_fetch_returns_the_operator_and_its_metadata

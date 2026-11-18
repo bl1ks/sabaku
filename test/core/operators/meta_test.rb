@@ -20,6 +20,8 @@ class OperatorMetaTest < Minitest::Test
     ["x = 1\n", :literal, ["x = 2\n", "x = 0\n"]],
     ["xs.map { |x| x }\n", :selector, ["xs.each { |x| x }\n"]],
     ["x += 1\n", :assign, ["x = 1\n"]],
+    ["def f\n  compute\nend\n", :return, ["def f\n  nil\nend\n"]],
+    ["[1].each do |x|\n  next x\nend\n", :control, ["[1].each do |x|\n  break\nend\n"]],
     ["\n  one\n  two\n  three\n", :sbr, []]
   ].freeze
 

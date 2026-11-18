@@ -22,7 +22,7 @@ mutants from the analyzer to a second implementation in Lean.
 
 ```
 formal/lean/Mutation/Basic.lean      bytes, mutants, splice
-formal/lean/Mutation/Operators.lean  the seven operator tables
+formal/lean/Mutation/Operators.lean  the operator tables
 formal/lean/Mutation/Aridity.lean    the recursive aridity rule and the walk
 formal/lean/Mutation/Selection.lean  per-line selection and its stability
 formal/lean/Mutation/Score.lean      the mutation score
@@ -32,7 +32,7 @@ formal/quint/runner.qnt              the pool model and its invariants
 formal/quint/variants.sh             generates one fault variant per invariant
 formal/replay/emit.rb                deterministic facts from the real analyzer
 formal/replay/check.rb               contract checks on the real mutant list
-formal/replay/corpus/kitchen_sink.rb a source that reaches all seven operators
+formal/replay/corpus/kitchen_sink.rb a source that reaches every operator
 formal/regressions.sh                asserts the four findings stay fixed
 ```
 
@@ -44,7 +44,8 @@ Each row names the property in plain words and the code it mirrors.
 | --- | --- | --- |
 | Basic | A splice keeps every byte before the site, and its length is `len - (end - start) + replacement.len`. | `Mutant#splice` |
 | Basic | A splice changes the file exactly when the replacement differs from the node's slice. | `Mutant#splice`, `Analyzer#verify!` |
-| Operators | Every operator image excludes the original, so no mutant is a no-op. | `aor.rb`, `ror.rb`, `lcr.rb`, `sbr.rb`, `uoi.rb`, `bool.rb`, `str.rb` |
+| Operators | Every operator image excludes the original, so no mutant is a no-op. | `aor.rb`, `ror.rb`, `lcr.rb`, `sbr.rb`, `uoi.rb`, `bool.rb`, `str.rb`, `literal.rb`, `cond.rb`, `assign.rb`, `return.rb`, `control.rb` |
+| Operators | A rewrite that reproduces its own input is dropped before it becomes a mutant. | `Analyzer#walk` (`next if replacement.replacement == actual`) |
 | Operators | The image is complete: every other token appears. | `OPERATORS - [token]` |
 | Operators | Relational and connector tokens are disjoint, so two operators cannot emit `true` at one span. | `Mutant#initialize` (the id omits the operator) |
 | Operators | `SBR` never removes the last statement of a def body and never removes anything from a declaration container. | `Sbr.removable_indices` |
@@ -80,6 +81,8 @@ Checked invariants:
 - `INV_report_has_every_result`: a reported campaign has an outcome for every mutant.
 - `INV_score_bound`: the score numerator never exceeds the denominator.
 - `INV_denominator_covers_timeouts`: timeouts are counted.
+- `INV_skipped_has_no_child`: a `--fail-fast` skipped mutant never started a child.
+- `INV_skip_only_after_survivor`: nothing is skipped before a survivor stopped the run.
 
 The default gate checks three mutants with two workers up to six steps; `--deep` checks up to ten
 steps, which reaches `finalize`. Apalache decides every interleaving inside the bound, not a
@@ -91,8 +94,8 @@ copied, so the honest model stays the only source of truth.
 
 ## What the replay checks
 
-`formal/replay/emit.rb` analyses the two fixtures and the kitchen-sink corpus with all seven
-operators at `--per-line=2`, twice, and refuses to write anything unless both runs agree. It emits
+`formal/replay/emit.rb` analyses the two fixtures and the kitchen-sink corpus with every
+operator at `--per-line=2`, twice, and refuses to write anything unless both runs agree. It emits
 one splice record per mutant and one score record per count grid. The score record is the
 percentage the terminal prints, in tenths of a percent. `lake exe replay` recomputes
 each one in Lean; `formal/replay/check.rb` checks the real mutant list against the proven
@@ -103,9 +106,15 @@ contract:
 - at most `per_line` mutants share a line;
 - every reported line lies inside its node's span;
 - every replacement differs from the bytes it replaces;
-- all seven operators appear.
+- every operator in `Registry.ids` appears.
 
 ## What is not covered
+
+- `selector.rb` and `call.rb` are text-rebuild operators: their image is not a token substitution,
+  so Lean models the no-op filter (`emitted`) and not the tables themselves. The tables are checked
+  by `test/core/operators/meta_test.rb` and by the corpus parse test, not by a proof.
+- `CoverageMap#ordered_tests_for_span` only orders the covering tests; the selection cardinality
+  properties in `Selection.lean` do not depend on that order.
 
 - The Ruby runtime is modelled, not proven. `fork`, `IO.select`, `SIGKILL`, `waitpid2`, pipe
   buffering, and `Process.spawn` are trusted.

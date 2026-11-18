@@ -231,4 +231,38 @@ theorem emitted_no_identity (original : String) (image : List String) :
     original ∉ emitted original image := by
   simp [emitted]
 
+/-- `Control.mutations`: `break` becomes `next` and `next` becomes `break`. -/
+inductive LoopControl where
+  | breakOp | nextOp
+  deriving DecidableEq, Repr
+
+def LoopControl.token : LoopControl → String
+  | breakOp => "break" | nextOp => "next"
+
+def LoopControl.swap : LoopControl → LoopControl
+  | breakOp => nextOp | nextOp => breakOp
+
+theorem control_swap_ne (c : LoopControl) : LoopControl.swap c ≠ c := by
+  cases c <;> decide
+
+theorem control_token_changed (c : LoopControl) :
+    LoopControl.token (LoopControl.swap c) ≠ LoopControl.token c := by
+  cases c <;> decide
+
+/-- `Return.mutations`: the last expression of a method body becomes `nil`. The
+    operator skips a body that already ends in `nil`, which is the no-op guard
+    applied where the table lives. -/
+def returnImage (original : String) : Option String :=
+  if original = "nil" then none else some "nil"
+
+theorem return_no_identity (original : String) :
+    returnImage original ≠ some original := by
+  unfold returnImage
+  split
+  · simp
+  · rename_i h
+    simp [Ne.symm h]
+
+theorem return_skips_nil : returnImage "nil" = none := by decide
+
 end Mutation.Operator

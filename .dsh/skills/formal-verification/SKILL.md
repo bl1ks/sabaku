@@ -18,6 +18,7 @@ The engine's pure part is proven in Lean 4 and its concurrent part is model chec
 | `report.rb` | `bin/formal` | `Score.lean` mirrors `score`; `emit.rb` emits the count grid. |
 | `cache.rb` | `bin/formal` | `Cache.lean` mirrors read/write and the version check. |
 | `runner.rb` (pool, classification) | `bin/formal --deep` | Update `runner.qnt` in the same commit. |
+| `coverage_map.rb` (ordering) | `bin/check` | Ordering only; the selection proofs do not depend on it. |
 | `adapters/*.rb`, `cli.rb`, `Source`, `Mutant` | `bin/check` only | Not covered here, except `Mutant#splice` via the replay. |
 
 ## Run it
@@ -53,7 +54,9 @@ fault variant that stops violating its invariant, or a finding that stops reprod
 ## Coverage record
 
 - `formal/lean/Mutation/Basic.lean`: `Mutant#splice`, `Source#slice`, the no-op condition.
-- `formal/lean/Mutation/Operators.lean`: all seven operator tables, `Sbr.removable_indices`,
+- `formal/lean/Mutation/Operators.lean`: the operator tables (`Aor`, `Ror`, `Lcr`, `Sbr`,
+  `Uoi`, `Bool`, `Str`, `Assign`, `Cond`, `Literal`, `Return`, `Control`), the `emitted` no-op filter that
+  `Selector` and `Call` rely on, `Sbr.removable_indices`,
   `Mutant#initialize`'s id fields.
 - `formal/lean/Mutation/Aridity.lean`: `Aridity#arid?`'s recursion and ancestor scans,
   `Analyzer#walk`'s pruning.
@@ -62,10 +65,10 @@ fault variant that stops violating its invariant, or a finding that stops reprod
 - `formal/lean/Mutation/Cache.lean`: `Cache#fetch`, `Cache#store`, `Cache#load_entries`,
   `Runner#persist_results`.
 - `formal/quint/runner.qnt`: `Runner#run_pool`, `prepare_entry`'s uncovered path, `finish_job`,
-  `classify`, `Report#score`'s denominator.
+  `classify`, `halt_fast_fail`, `mark_skipped`, `Report#score`'s denominator.
 - `formal/regressions.sh`: the four fixed findings, end to end through the CLI and the library.
 - `formal/replay/emit.rb`: the real `Analyzer` over two fixtures and
-  `formal/replay/corpus/kitchen_sink.rb`, with all seven operators, `--per-line=2`.
+  `formal/replay/corpus/kitchen_sink.rb`, with every operator in `Registry.ids`, `--per-line=2`.
 
 ## Sync commit
 

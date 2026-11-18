@@ -15,12 +15,14 @@ require_relative "selector"
 require_relative "call"
 require_relative "cond"
 require_relative "assign"
+require_relative "return"
+require_relative "control"
 
 module Mutation
   module Operator
     # The operator catalog. Ids are stable API: configs, caches and reports all store them.
     module Registry
-      OPERATORS = [Aor, Ror, Lcr, Sbr, Uoi, Bool, Str, Literal, Selector, Call, Cond, Assign].freeze
+      OPERATORS = [Aor, Ror, Lcr, Sbr, Uoi, Bool, Str, Literal, Selector, Call, Cond, Assign, Return, Control].freeze
 
       # Every operator is on by default. Depth, not breadth, is what
       # --per-line controls, so the candidate pool should be the whole table.
