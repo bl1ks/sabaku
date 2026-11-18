@@ -25,12 +25,12 @@ module Mutation
         return [] if predicate.nil?
 
         original = source.slice(node)
-        span = predicate.location
+        start_offset, end_offset = Support.unwrapped_range(predicate)
         %w[true false].map do |value|
           Replacement.new(
             original: original,
-            replacement: Support.replace_range(original, node, span.start_offset,
-                                               span.end_offset, value)
+            replacement: Support.replace_range(original, node, start_offset,
+                                               end_offset, value)
           )
         end
       end

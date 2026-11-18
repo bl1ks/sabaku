@@ -17,6 +17,12 @@ class OperatorMetaTest < Minitest::Test
     ["a && b\n", :lcr, ["a\n", "b\n", "a || b\n", "true\n", "false\n"]],
     ["if flag\n  work\nend\n", :uoi, ["if !(flag)\n  work\nend\n"]],
     ["if flag\n  work\nend\n", :cond, ["if true\n  work\nend\n", "if false\n  work\nend\n"]],
+    # The predicate of a modifier `if` is the whole parenthesised expression, so a
+    # rewrite has to stay inside the parentheses or the keyword fuses with it.
+    ["return 1 if(x > 0)\n", :cond, ["return 1 if(true)\n", "return 1 if(false)\n"]],
+    ["return 1 if(x > 0)\n", :uoi, ["return 1 if(!(x > 0))\n"]],
+    ["unless(x)\n  work\nend\n", :cond, ["unless(true)\n  work\nend\n", "unless(false)\n  work\nend\n"]],
+    ["while(x > 0)\n  work\nend\n", :uoi, ["while(!(x > 0))\n  work\nend\n"]],
     ["x = 1\n", :literal, ["x = 2\n", "x = 0\n"]],
     ["xs.map { |x| x }\n", :selector, ["xs.each { |x| x }\n"]],
     ["x += 1\n", :assign, ["x = 1\n"]],

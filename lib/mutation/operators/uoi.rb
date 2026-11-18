@@ -49,12 +49,11 @@ module Mutation
         return [] unless predicate
 
         original = source.slice(node)
-        location = predicate.location
-        wrapped = "!(#{source.slice(predicate)})"
+        range = Support.unwrapped_range(predicate)
+        wrapped = "!(#{Support.slice_range(original, node, range)})"
         [Replacement.new(
           original: original,
-          replacement: Support.replace_range(original, node, location.start_offset,
-                                            location.end_offset, wrapped)
+          replacement: Support.replace_range(original, node, range[0], range[1], wrapped)
         )]
       end
 
