@@ -42,7 +42,7 @@ module Mutation
     BOOTSTRAP = File.join(MUTATION_LIB, "mutation", "runtime", "bootstrap.rb")
 
     Entry = Struct.new(:index, :mutant, :selected_ids, :source_text, :cache_key, :result,
-                       keyword_init: true) do
+                       :first_load, keyword_init: true) do
       def done?
         !result.nil?
       end
@@ -54,7 +54,8 @@ module Mutation
     # A run of the same child shape with no mutation applied. `reload` re-executes
     # the target file first, which is what the fork path does to a mutant, so a
     # verdict here answers "did the harness itself break this test".
-    Control = Struct.new(:key, :index, :ids, :reload, :path, :text, keyword_init: true)
+    Control = Struct.new(:key, :index, :ids, :reload, :path, :text, :first_load, :grace,
+                         keyword_init: true)
 
     def initialize(config, analyzer: nil, adapter:, coverage_map: nil)
       @config = config
@@ -410,13 +411,14 @@ module Mutation
 
     # ---- process isolation --------------------------------------------------
 
-    def start_process_job(entry)
+    def start_process_job(entry, grace: 0.0)
       spawn_process(
         entry,
         text: entry.mutant.splice(entry.source_text),
         ids: entry.selected_ids,
         path: entry.mutant.path.to_s,
-        neutral: false
+        neutral: false,
+        grace: grace
       )
     end
 
@@ -428,11 +430,12 @@ module Mutation
         text: control.text,
         ids: control.ids,
         path: control.path.to_s,
-        neutral: control.text.nil?
+        neutral: control.text.nil?,
+        grace: control.grace.to_f
       )
     end
 
-    def spawn_process(subject, text:, ids:, path:, neutral:)
+    def spawn_process(subject, text:, ids:, path:, neutral:, grace: 0.0)
       temporary = temp_file_for(subject)
       File.write(temporary, text.to_s)
 
@@ -461,7 +464,8 @@ module Mutation
       )
 
       writer.close
-      Job.new(pid: pid, reader: reader, started_at: started, deadline: started + @timeout,
+      Job.new(pid: pid, reader: reader, started_at: started,
+              deadline: started + @timeout + grace,
               entry: subject.respond_to?(:mutant) ? subject : nil,
               control: subject.respond_to?(:key) ? subject : nil,
               temp_path: temporary, pgroup: true)
@@ -489,7 +493,7 @@ module Mutation
       duration = clock - job.started_at
 
       if job.control
-        record_control(job.control, payload, status, timed_out)
+        record_control(job.control, payload, status, timed_out, duration)
       elsif timed_out
         job.entry.result = Result.new(mutant: job.entry.mutant, status: :timeout, duration: duration,
                                       message: "exceeded #{format('%.3f', @timeout)}s deadline")
@@ -565,6 +569,15 @@ module Mutation
     # the mutants still in flight.
     def deferred_unmeasured(entry, payload, duration)
       reason = payload["error"] || "the child failed while loading the mutated file"
+      # A first-load child already applies the mutation the way the project
+      # loads it, so a boot error there is the mutation's or the suite's, not a
+      # second-load artefact. It stays unmeasured and the message names the
+      # surface.
+      if entry.first_load
+        return Result.new(mutant: entry.mutant, status: :skipped, duration: duration,
+                          message: "not measured: the suite could not load with this " \
+                                   "mutation (#{reason})")
+      end
       # Process isolation builds the child from the mutated file, so a boot
       # failure there can equally be a setup or harness failure. Only the fork
       # path can ask a second question and tell the two apart.
@@ -589,21 +602,66 @@ module Mutation
       end
       verdicts = run_controls(controls)
 
+      retry_entries = []
       pending.each do |entry, reason|
         verdict = verdicts[[:reload, entry.mutant.path.to_s]]
         next if verdict.nil?
 
-        entry.result =
-          if verdict[:ok]
+        if verdict[:ok]
+          entry.result =
             Result.new(mutant: entry.mutant, status: :skipped,
                        duration: entry.result.duration,
                        message: "not measured: the mutated file does not load (#{reason})")
-          else
-            detail = verdict[:message] || "the file raised when it was loaded again"
-            Result.new(mutant: entry.mutant, status: :skipped,
-                       duration: entry.result.duration,
-                       message: "not measured: cannot reload the file in fork isolation (#{detail})")
-          end
+        else
+          # The file itself cannot be loaded twice. The mutant may still be
+          # measurable where it is loaded once, so it moves to that surface.
+          entry.first_load = true
+          retry_entries << entry
+        end
+      end
+
+      measure_first_load(retry_entries) unless retry_entries.empty?
+    end
+
+    # The second surface: a fresh process whose suite loads in its normal order
+    # and whose mutation is applied at the target's first load. The reload
+    # control already proved the file, not the mutation, is why the fork child
+    # could not load it, so this child only asks whether the mutant is
+    # measurable at all. A boot error here is reported as skipped, never as a
+    # kill or a survival.
+    #
+    # A neutral boot first measures what such a child costs before any test
+    # runs. That fixed cost belongs to the surface, not to the mutant, so the
+    # deadline carries it instead of charging it to every retry.
+    def measure_first_load(entries)
+      grace = first_load_grace
+      if grace.nil?
+        detail = @first_load_boot_message || "the fresh-process surface did not boot"
+        entries.each do |entry|
+          entry.result = Result.new(mutant: entry.mutant, status: :skipped,
+                                    duration: entry.result.duration,
+                                    message: "not measured: #{detail}")
+        end
+        return
+      end
+
+      without_halting do
+        run_pool(entries) { |entry| start_process_job(entry, grace: grace) }
+      end
+      @unmeasured = []
+    end
+
+    # -> Float seconds for a bare first-load child, or nil when it cannot boot.
+    def first_load_grace
+      return @first_load_grace if defined?(@first_load_grace)
+
+      control = Control.new(key: :first_load_boot, index: -1, ids: [], reload: false)
+      verdict = run_controls([control]).fetch(:first_load_boot)
+      if verdict && verdict[:ok]
+        @first_load_grace = verdict[:duration].to_f
+      else
+        @first_load_boot_message = verdict && verdict[:message]
+        @first_load_grace = nil
       end
     end
 
@@ -616,34 +674,48 @@ module Mutation
       @controls = {}
       # --fail-fast stops the mutant pool, not the check on what it already
       # reported; a control run is a question about the harness, not a mutant.
-      halted = @halted
-      @halted = false
-      begin
+      without_halting do
         if @isolation == :fork
-          run_pool(controls, controls: true) { |control| start_control_job(control) }
+          folder = controls.reject(&:first_load)
+          first_load = controls.select(&:first_load)
+          run_pool(folder, controls: true) { |control| start_control_job(control) } unless folder.empty?
+          unless first_load.empty?
+            run_pool(first_load, controls: true) { |control| start_process_control_job(control) }
+          end
         else
           run_pool(controls, controls: true) { |control| start_process_control_job(control) }
         end
-      ensure
-        @halted = halted
       end
       @controls
     end
 
-    def record_control(control, payload, status, timed_out)
+    def without_halting
+      halted = @halted
+      fail_fast = @fail_fast
+      @halted = false
+      @fail_fast = false
+      yield
+    ensure
+      @halted = halted
+      @fail_fast = fail_fast
+    end
+
+    def record_control(control, payload, status, timed_out, duration)
       @controls[control.key] =
         if timed_out
-          { ok: false, failed_id: nil, message: "exceeded #{format('%.3f', @timeout)}s deadline" }
+          { ok: false, failed_id: nil, duration: duration,
+            message: "exceeded #{format('%.3f', @timeout)}s deadline" }
         elsif payload.nil?
-          { ok: false, failed_id: nil,
+          { ok: false, failed_id: nil, duration: duration,
             message: "child produced no completion signal (exit #{status && status.exitstatus})" }
         elsif payload["boot_error"] || (status && status.exitstatus == 2)
-          { ok: false, failed_id: payload["failed_id"],
+          { ok: false, failed_id: payload["failed_id"], duration: duration,
             message: payload["error"] || "child boot error" }
         elsif payload["ok"] && status && status.exitstatus.zero?
-          { ok: true, failed_id: nil, message: nil }
+          { ok: true, failed_id: nil, message: nil, duration: duration }
         else
-          { ok: false, failed_id: payload["failed_id"], message: payload["error"] }
+          { ok: false, failed_id: payload["failed_id"], message: payload["error"],
+            duration: duration }
         end
     end
 
@@ -681,13 +753,17 @@ module Mutation
 
       suspects = entries.select do |entry|
         result = entry.result
-        result && result.killed? && result.failed_test && load_sensitive?(entry.mutant.path)
+        next false if result.nil? || !result.killed? || result.failed_test.nil?
+
+        entry.first_load || load_sensitive?(entry.mutant.path)
       end
       return if suspects.empty?
 
       controls = suspects.uniq { |entry| kill_key(entry) }.map do |entry|
         Control.new(key: kill_key(entry), index: entry.index, ids: [entry.result.failed_test],
-                    reload: true, path: entry.mutant.path, text: entry.source_text)
+                    reload: true, path: entry.mutant.path, text: entry.source_text,
+                    first_load: entry.first_load,
+                    grace: entry.first_load ? @first_load_grace.to_f : 0.0)
       end
       verdicts = run_controls(controls)
 
@@ -696,8 +772,12 @@ module Mutation
         next if verdict.nil? || verdict[:ok]
 
         detail = verdict[:message] ? " (#{verdict[:message]})" : ""
-        message = "unverified kill: #{verdict[:failed_id] || "a test"} fails with no mutation " \
-                  "applied once #{entry.mutant.path} is loaded a second time#{detail}"
+        how = if entry.first_load
+                "the file is loaded once, with no mutation"
+              else
+                "the file is loaded a second time and no mutation is applied"
+              end
+        message = "unverified kill: #{verdict[:failed_id] || "a test"} fails when #{how}#{detail}"
         entry.result = Result.new(mutant: entry.mutant, status: :error,
                                   duration: entry.result.duration,
                                   failed_test: entry.result.failed_test, message: message)
@@ -705,7 +785,7 @@ module Mutation
     end
 
     def kill_key(entry)
-      [entry.mutant.path, entry.result.failed_test.to_s]
+      [entry.first_load ? :first_load : :fork, entry.mutant.path, entry.result.failed_test.to_s]
     end
 
     # Memoised per file: one AST walk says whether the fork path's extra load can
@@ -793,6 +873,10 @@ module Mutation
     def persist_results
       @entries.each do |entry|
         next if entry.cache_key.nil? || entry.result.nil?
+        # A first-load verdict is real, but it was measured on a different
+        # surface than the fingerprint names; caching it under the fork key
+        # would let a later fork run reuse a number it did not measure.
+        next if entry.first_load
         next unless %i[killed survived].include?(entry.result.status)
 
         @cache.store(entry.cache_key,

@@ -6,10 +6,10 @@ require "tmpdir"
 require_relative "../test_helper"
 require_relative "support/adapter_test_helpers"
 
-# The three ways fork isolation can lose a result, and what each one should
-# report: a file that cannot be reloaded (the harness), a child the suite
-# aborts while the selected tests run (a kill), and a mutation that makes the
-# file unloadable (an invalid mutant).
+# The ways fork isolation can lose a result, and what each one should report: a
+# file that cannot be reloaded (measured again on its first load), a child the
+# suite aborts while the selected tests run (a kill), and a mutation that makes
+# the file unloadable (an invalid mutant).
 class RunnerAttributionTest < Minitest::Test
   include AdapterTestHelpers
 
@@ -37,9 +37,10 @@ class RunnerAttributionTest < Minitest::Test
     end
   end
 
-  # configurable.rb cannot be evaluated twice, so no mutation of that file is
-  # measurable in fork isolation. The report must not blame the mutant.
-  def test_a_file_that_cannot_be_reloaded_is_not_an_error
+  # configurable.rb cannot be evaluated twice, but it loads once. The fork child
+  # cannot measure its mutants, so the runner measures them where the file is
+  # loaded once and the mutation is the first load.
+  def test_a_file_that_cannot_be_reloaded_is_measured_on_its_first_load
     result = run_campaign(
       "hostile_reload_minitest", test_id: "HostileTest#test_value",
       path: "lib/hostile.rb", line: 10,
@@ -47,9 +48,37 @@ class RunnerAttributionTest < Minitest::Test
       map_lines: (1..12).to_a
     ).first
 
-    assert_equal :skipped, result.status, result.message
-    assert_match(/cannot reload the file in fork isolation/, result.message)
-    assert_match(/hostile loaded 2 times/, result.message)
+    assert_equal :killed, result.status, result.message
+    assert_equal "HostileTest#test_value", result.failed_test
+  end
+
+  # The first-load surface reports a survival as readily as a kill: the retry is
+  # a measurement, not a reason to call the mutant killed.
+  def test_a_first_load_mutant_the_tests_do_not_observe_is_a_survivor
+    result = run_campaign(
+      "hostile_survivor_minitest", test_id: "HostileTest#test_value",
+      path: "lib/hostile.rb", line: 14,
+      original: "42", replacement: "43", operator: :lcr, node_kind: "IntegerNode",
+      map_lines: (1..20).to_a
+    ).first
+
+    assert_equal :survived, result.status, result.message
+  end
+
+  # A test that only passes after the file is loaded twice fails on the
+  # first-load surface with no mutation applied. The kill it produces there is
+  # the surface's, so the kill check must take it back.
+  def test_a_kill_that_only_the_first_load_surface_caused_is_not_reported_as_killed
+    result = run_campaign(
+      "first_load_artifact_minitest", test_id: "HostileTest#test_value",
+      path: "lib/hostile.rb", line: 14,
+      original: "42", replacement: "43", operator: :lcr, node_kind: "IntegerNode",
+      map_lines: (1..20).to_a
+    ).first
+
+    assert_equal :error, result.status, result.message
+    assert_match(/unverified kill/, result.message)
+    assert_match(/loaded once, with no mutation/, result.message)
   end
 
   # A helper that ends the child on failure leaves no summary. Exit status 1 is
