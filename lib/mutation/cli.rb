@@ -83,6 +83,16 @@ module Mutation
 
       report = Report.new(results, cfg)
       emit(report, cfg)
+      errored = report.counts[:error]
+      if errored.positive?
+        @err.puts("mutation: #{errored} of #{report.results.size} mutants produced no " \
+                  "result, so the score excludes them and does not measure the suite")
+        first = report.results.find { |result| result.status == :error }
+        @err.puts("mutation: first error at #{first.mutant.path}:#{first.mutant.line} " \
+                  "#{first.message}") if first
+        return EXIT_ERROR
+      end
+
       threshold = options[:min_score]
       return EXIT_OK if threshold.nil?
 
@@ -296,7 +306,8 @@ module Mutation
           --output=PATH              write the JSON report
           --min-score=PCT            exit 1 when the reported score is below this
 
-        Exit codes: 0 ok, 1 when the reported score is below --min-score, 2 error.
+        Exit codes: 0 ok, 1 when the reported score is below --min-score,
+                    2 error, or any mutant that produced no result.
       HELP
     end
   end

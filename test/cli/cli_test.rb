@@ -148,6 +148,24 @@ class CLITest < Minitest::Test
     end
   end
 
+  def test_a_campaign_where_no_mutant_can_run_exits_2
+    in_project do
+      FileUtils.mkdir_p("test")
+      File.write("test/subject_test.rb", "require \"missing_gem_xyz\"\n")
+
+      code, out, err = start(["run", "lib", "--no-coverage", "--report=json"])
+      payload = JSON.parse(out.lines.last)
+
+      assert_equal 2, code
+      assert_operator payload["error"], :>, 0
+      assert_equal 0, payload["killed"]
+      assert_includes err, "produced no result"
+      assert_includes err, "first error at"
+    end
+  ensure
+    reap_stragglers
+  end
+
   private
 
   def write_test(assertion)

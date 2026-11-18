@@ -50,6 +50,7 @@ module Mutation
       out << header
       out << status_lines
       out << survivor_lines
+      out << error_lines
       out << file_lines
       out
     end
@@ -80,7 +81,7 @@ module Mutation
       when :survived then "  <- your tests did not notice these"
       when :timeout then "  <- killed by the clock, not by a test"
       when :uncovered then "  (no test covers the line; not scored)"
-      when :error then "  <- the mutant could not be applied"
+      when :error then "  <- no result: never tested, not scored"
       when :skipped then "  (not reached: --fail-fast stopped the run)"
       else ""
       end
@@ -98,9 +99,31 @@ module Mutation
       out << "\n"
     end
 
+    # Errors are the one status the score cannot absorb and the one whose cause is
+    # never in the score, so the terminal names them instead of leaving the count
+    # to speak for itself.
+    def error_lines
+      errors = results.select { |result| result.status == :error }
+      return "" if errors.empty?
+
+      out = +"errors (not scored):\n"
+      errors.first(10).each do |result|
+        out << format("  %s:%d  %s\n", result.mutant.path, result.mutant.line,
+                      clamp_message(result.message))
+      end
+      out << format("  ... and %d more\n", errors.size - 10) if errors.size > 10
+      out << "\n"
+    end
+
+    def clamp_message(message, limit: 96)
+      text = message.to_s.gsub(/\s+/, " ").strip
+      return "(no message)" if text.empty?
+
+      text.length > limit ? "#{text[0, limit - 1]}..." : text
+    end
+
     def file_lines
       return "" if per_file.size < 2
-
       out = +"per file:\n"
       widest = per_file.map { |f| f[:path].length }.max
       per_file.each do |file|

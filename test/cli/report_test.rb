@@ -60,6 +60,27 @@ class ReportTest < Minitest::Test
     refute_includes text, "error"
   end
 
+  def test_terminal_names_every_error_with_its_cause
+    errored = Mutation::Result.new(
+      mutant: mutant(line: 7), status: :error,
+      message: "LoadError: cannot load such file -- nope"
+    )
+    text = report([result(:killed), errored]).to_terminal
+
+    assert_includes text, "errors (not scored):"
+    assert_includes text, "lib/pricing.rb:7  LoadError: cannot load such file -- nope"
+    refute_includes text, "could not be applied"
+  end
+
+  def test_terminal_lists_at_most_ten_errors
+    errored = Array.new(12) do |index|
+      Mutation::Result.new(mutant: mutant(line: index + 1), status: :error, message: "boom")
+    end
+    text = report(errored).to_terminal
+
+    assert_includes text, "... and 2 more"
+  end
+
   def test_json_carries_the_survivor_detail_a_ci_job_needs
     payload = JSON.parse(report([result(:survived, line: 7)]).to_json)
     assert_equal 1, payload["mutants"]
