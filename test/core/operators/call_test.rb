@@ -47,9 +47,13 @@ class CallTest < Minitest::Test
     assert_empty replacements(text).select { |result| result.include?("<<~SQL") }
   end
 
-  def test_safe_navigation_and_missing_nodes_are_skipped
+  def test_safe_navigation_and_unparsable_source
     assert_empty replacements("a&.foo\n")
-    assert_empty replacements("f(\n")
+    # A file that does not parse has no offsets to mutate, so Source refuses it
+    # outright rather than letting the operators walk a repaired tree.
+    error = assert_raises(Mutation::Error) { source("f(\n") }
+    assert_includes error.message, "test/subject.rb:1"
+    assert_includes error.message, "does not parse"
   end
 
   def test_every_replacement_parses

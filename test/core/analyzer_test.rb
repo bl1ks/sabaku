@@ -134,4 +134,34 @@ class AnalyzerTest < Minitest::Test
   def test_empty_sources_produce_no_mutants
     assert_empty analyze([])
   end
+
+  # A heredoc, a multi-line receiver and a parenthesised modifier all produce
+  # candidates that only break once they land. Scoring one as a mutant would fail
+  # the campaign with an error the suite cannot fix, so the gate drops it and the
+  # line keeps its next candidate.
+  def test_a_candidate_that_does_not_parse_is_replaced_by_another_on_its_line
+    built = source("a + b\n")
+    good = fake_mutant(built, replacement: "a - b", end_offset: 5)
+    broken = fake_mutant(built, replacement: "a -", end_offset: 5)
+    analyzer = Mutation::Analyzer.new([built], Mutation::Config.default(per_line: 1))
+
+    chosen = analyzer.send(:select_per_line, built, [broken, good])
+
+    assert_equal [good.id], chosen.map(&:id)
+  end
+
+  def test_a_line_whose_candidates_all_break_keeps_no_mutant
+    built = source("a + b\n")
+    broken = fake_mutant(built, replacement: "a -", end_offset: 5)
+    analyzer = Mutation::Analyzer.new([built], Mutation::Config.default(per_line: 1))
+
+    assert_empty analyzer.send(:select_per_line, built, [broken])
+  end
+
+  def fake_mutant(built, replacement:, end_offset:)
+    Mutation::Mutant.new(
+      path: built.rel_path, operator: :aor, line: 1, column: 0, node_kind: "CallNode",
+      original: "a + b", replacement: replacement, start_offset: 0, end_offset: end_offset
+    )
+  end
 end

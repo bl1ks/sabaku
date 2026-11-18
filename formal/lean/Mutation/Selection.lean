@@ -140,4 +140,48 @@ theorem pick_stable_perm (rand : Nat → Nat) (h : RngOk rand) (k : Nat) (pool :
     (pick rand h k (pick rand h k pool)).Perm (pick rand h k pool) :=
   pick_all_perm rand h k _ hk
 
+/-! ## The candidate gate
+
+`Analyzer#candidate_parses?` refuses a candidate whose rewritten file does not re-parse, because
+every child would fail to load it. `select_per_line` draws from the group and skips a dead draw,
+continuing until it has `min per_line group.length` live candidates or the group is empty. That is
+the same set as drawing `min per_line` from the live candidates, so the pool the theorems above
+describe is the parseable subset of the line's group. -/
+
+/-- The candidates a line may draw from: the rewrites whose file re-parses. -/
+def parseable {α : Type u} (ok : α → Bool) (pool : List α) : List α := pool.filter ok
+
+theorem parseable_subset {α : Type u} (ok : α → Bool) (pool : List α) :
+    parseable ok pool ⊆ pool :=
+  List.filter_sublist.subset
+
+theorem parseable_eq_self {α : Type u} {ok : α → Bool} {pool : List α}
+    (hall : ∀ x ∈ pool, ok x = true) : parseable ok pool = pool := by
+  simp only [parseable]
+  exact List.filter_eq_self.mpr hall
+
+/-- A drawn candidate was in the line's group, gate or no gate. -/
+theorem pick_parseable_subset (rand : Nat → Nat) (h : RngOk rand) (k : Nat) (ok : α → Bool)
+    (pool : List α) {x : α} (hx : x ∈ pick rand h k (parseable ok pool)) : x ∈ pool :=
+  parseable_subset ok pool (pick_subset rand h k (parseable ok pool) hx)
+
+/-- A line keeps `min per_line (parseable candidates)` mutants, never more. -/
+theorem pick_parseable_length (rand : Nat → Nat) (h : RngOk rand) (k : Nat) (ok : α → Bool)
+    (pool : List α) :
+    (pick rand h k (parseable ok pool)).length = min k (parseable ok pool).length :=
+  pick_length rand h k _
+
+/-- Re-analysing a file keeps the same mutants. The gate is a pure function of the file text, so
+    the second pass draws from the same live candidates and `pick_all_perm` applies again. -/
+theorem pick_stable_parseable (rand : Nat → Nat) (h : RngOk rand) (k : Nat) (ok : α → Bool)
+    (pool : List α) :
+    (pick rand h k (parseable ok (pick rand h k (parseable ok pool)))).Perm
+      (pick rand h k (parseable ok pool)) := by
+  have hlive : ∀ x ∈ pick rand h k (parseable ok pool), ok x = true := by
+    intro x hx
+    have hmem : x ∈ parseable ok pool := pick_subset rand h k _ hx
+    simpa using (List.mem_filter.mp hmem).2
+  rw [parseable_eq_self hlive]
+  exact pick_stable_perm rand h k _ (pick_le rand h k _)
+
 end Mutation.Selection

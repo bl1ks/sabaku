@@ -2,6 +2,8 @@
 
 require "prism"
 
+require_relative "errors"
+
 module Mutation
   # One Ruby file: its path, its exact text, and the Prism tree parsed once. Every operator
   # works in offsets into #text, so this is the only place the source is tokenized.
@@ -11,9 +13,25 @@ module Mutation
     def initialize(rel_path, text)
       @rel_path = rel_path.to_s.freeze
       @text = text.dup.freeze
-      @ast = Prism.parse(@text).value
+      result = Prism.parse(@text)
+      @ast = result.value
       @line_starts = build_line_starts
+      reject_parse_errors(result)
       freeze
+    end
+
+    # A file the parser rejects cannot be mutated: every candidate would fail to
+    # apply, and the mutant would be reported as an error or as an uncovered
+    # line instead of as the broken file it is. Naming the file and the first
+    # error here is the only place that knows both.
+    def reject_parse_errors(result)
+      first = result.errors.first
+      return if first.nil?
+
+      line = @text.byteslice(0, first.location.start_offset).to_s.count("\n") + 1
+      raise Mutation::Error,
+            "#{@rel_path}:#{line}: #{first.message} (the file does not parse, so it " \
+            "cannot be mutated; pass --exclude to skip it)"
     end
 
     # Maps [start_offset, end_offset] of every node to the span of the statement

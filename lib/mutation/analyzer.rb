@@ -90,6 +90,17 @@ module Mutation
             "#{source.rel_path}:#{node.location.start_line}, expected #{actual.inspect}"
     end
 
+    # A candidate that does not re-parse can never be applied: every child would
+    # fail to load it, so it would be scored as an error and, since an error now
+    # fails the campaign, one heredoc-heavy file could block a gate. Dropping it
+    # here keeps the line's next candidate and keeps the exit code about the
+    # suite. Only mutants that are actually kept pay for the parse.
+    def candidate_parses?(mutant, source)
+      Prism.parse(mutant.splice(source.text)).errors.empty?
+    rescue StandardError
+      false
+    end
+
     def diff_covers?(source, line)
       ranges = config.diff_ranges
       return true if ranges.nil?
@@ -120,8 +131,14 @@ module Mutation
       candidates.uniq(&:id).group_by(&:line).each do |line, group|
         ordered = group.sort_by { |mutant| [mutant.start_offset, mutant.operator.to_s, mutant.replacement] }
         random = Random.new(config.seed ^ Zlib.crc32("#{source.rel_path}:#{line}"))
-        [config.per_line, ordered.length].min.times do
-          chosen << ordered.delete_at(random.rand(ordered.length))
+        wanted = [config.per_line, ordered.length].min
+        taken = 0
+        while taken < wanted && !ordered.empty?
+          mutant = ordered.delete_at(random.rand(ordered.length))
+          next unless candidate_parses?(mutant, source)
+
+          chosen << mutant
+          taken += 1
         end
       end
       chosen.sort_by do |mutant|
