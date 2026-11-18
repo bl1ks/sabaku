@@ -10,6 +10,7 @@ require_relative "boot"
 require_relative "cache"
 require_relative "coverage_map"
 require_relative "errors"
+require_relative "fingerprint"
 require_relative "result"
 require_relative "source"
 
@@ -58,6 +59,7 @@ module Mutation
       @statement_spans = {}
       @all_test_ids = nil
       @temp_dir = nil
+      @fingerprint = nil
     end
 
     # mutants: Array[Mutant] -> Array[Result] in the same order.
@@ -168,7 +170,8 @@ module Mutation
     def cache_key(mutant, mutated_source, selected)
       Digest::SHA256.hexdigest(
         [
-          "ruby-mutation-cache-v1",
+          "ruby-mutation-cache-v2",
+          fingerprint,
           mutant.id.to_s,
           Digest::SHA256.hexdigest(mutated_source.to_s),
           @adapter.name.to_s,
@@ -176,6 +179,11 @@ module Mutation
           selected.map(&:to_s).sort.join("\u0000")
         ].join("\u0000")
       )
+    end
+
+    # The campaign inputs outside the mutated source, hashed once per run.
+    def fingerprint
+      @fingerprint ||= Fingerprint.for(@config, @adapter).digest
     end
 
     # With --no-coverage the state machine says run every test for every

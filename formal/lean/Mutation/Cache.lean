@@ -72,8 +72,9 @@ theorem reader_accepts_more :
       fetchable Status.error = true ∧ cacheable Status.error = false := by
   decide
 
-/-- `Cache::FORMAT_VERSION`. -/
-def FORMAT_VERSION : Nat := 1
+/-- `Cache::FORMAT_VERSION`. Bumped to 2 when the key grew a campaign fingerprint: an entry
+    keyed without the test tree and the setup cannot answer the question the next campaign asks. -/
+def FORMAT_VERSION : Nat := 2
 
 /-- `Cache#load_entries`: the entries of a file with the current format version, and an empty
     cache for anything else. -/

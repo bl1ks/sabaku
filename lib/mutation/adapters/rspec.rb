@@ -27,6 +27,10 @@ module Mutation
         :rspec
       end
 
+      def test_glob
+        RSPEC_GLOB
+      end
+
       def preload!
         return self if @preloaded
 
@@ -34,7 +38,7 @@ module Mutation
         setup_load_path!
         require "rspec"
 
-        @test_files = discover_test_files(RSPEC_GLOB)
+        @test_files = test_files
         if @test_files.empty?
           raise Mutation::Error,
                 "no rspec files matched #{RSPEC_GLOB.inspect} under #{@root}"

@@ -25,6 +25,10 @@ module Mutation
         :minitest
       end
 
+      def test_glob
+        MINITEST_GLOB
+      end
+
       def preload!
         return self if @preloaded
 
@@ -33,7 +37,7 @@ module Mutation
         require "minitest"
         ::Minitest.seed ||= 0
 
-        @test_files = discover_test_files(MINITEST_GLOB)
+        @test_files = test_files
         if @test_files.empty?
           raise Mutation::Error,
                 "no minitest files matched #{MINITEST_GLOB.inspect} under #{@root}"

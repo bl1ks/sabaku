@@ -126,7 +126,42 @@ class CLITest < Minitest::Test
     end
   end
 
+  # A basename of its own: `require` resolves by feature name, so a second
+  # project with lib/subject.rb in the same process would silently reuse the
+  # first project's copy and this test would pass for the wrong reason.
+  def test_strengthening_a_test_invalidates_the_cached_verdict
+    in_project do
+      File.write("lib/counter.rb", "class Counter\n  def mul(a, b)\n    a * b\n  end\nend\n")
+      FileUtils.mkdir_p("test")
+      write_test("assert Counter.new.mul(2, 3)\n")
+
+      _code, out, = start(["run", "lib", "--operators=aor", "--report=json"])
+      weak = JSON.parse(out.lines.last)
+
+      write_test("assert_equal 6, Counter.new.mul(2, 3)\n")
+      _code, out, = start(["run", "lib", "--operators=aor", "--report=json"])
+      strong = JSON.parse(out.lines.last)
+
+      assert_operator weak["survived"], :>, 0, "the weak suite should have survivors"
+      assert_equal 0, strong["survived"], "a cached verdict outlived the test that produced it"
+      assert_operator strong["killed"], :>, 0
+    end
+  end
+
   private
+
+  def write_test(assertion)
+    File.write("test/counter_test.rb", <<~RUBY)
+      require "minitest/autorun"
+      require "counter"
+
+      class CounterTest < Minitest::Test
+        def test_mul
+          #{assertion.strip}
+        end
+      end
+    RUBY
+  end
 
   def total(list_output)
     list_output[/^(\d+) mutants$/, 1].to_i

@@ -16,12 +16,14 @@ module Mutation
   #   * adapter name
   #   * Ruby version
   #   * the selected test ids
+  #   * a campaign fingerprint over the test tree, the setup file, ENV,
+  #     --require, isolation and the timeout (see Fingerprint)
   #
   # A hit skips the child entirely and the runner reports it with duration 0.
   # `ENV["RUBY_MUTATION_NO_CACHE"]` is the kill switch; it is read here rather
   # than added to the frozen Config.
   class Cache
-    FORMAT_VERSION = 1
+    FORMAT_VERSION = 2
     KNOWN_STATUSES = %i[killed survived timeout error uncovered].freeze
     FALSE_VALUES = %w[0 false no off].freeze
     FILE_NAME = ".mutation-cache.json"

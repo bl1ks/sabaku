@@ -81,6 +81,17 @@ module Mutation
       @preloaded
     end
 
+    # The files this adapter will load, discovered without loading anything. The
+    # runner fingerprints them for the result cache, so a test that changed
+    # invalidates the verdicts it produced.
+    def test_files
+      @test_files ||= discover_test_files(test_glob)
+    end
+
+    def test_glob
+      raise NotImplementedError, "#{self.class} must implement #test_glob"
+    end
+
     def inspect
       "#<#{self.class} name=#{name.inspect} root=#{root.inspect} ids=#{@test_ids&.size.inspect}>"
     end
