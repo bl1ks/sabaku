@@ -1,9 +1,15 @@
 /// The mutation campaign's pool, as `lib/mutation/runner.rb` runs it.
 ///
 /// Preparation decides per mutant: no covering test means `uncovered` with no child, otherwise
-/// the mutant queues. At most `W` children run. A running child ends in exactly one of three
-/// ways: it reports a result (killed or survived), it dies without a usable result (error), or
-/// the parent kills it at its deadline (timeout).
+/// the mutant queues. At most `W` children run. A running child ends in exactly one of four
+/// ways: it reports a result (killed or survived), it exits 1 without a summary (killed: the
+/// exit contract already says a selected test failed), it fails to load (error, pending
+/// attribution), or the parent kills it at its deadline (timeout).
+///
+/// `attribute_unmeasured` runs after the pool drains and rewrites a boot-error result to
+/// `skipped` when a reload control proves the file, not the mutation, is why the child could not
+/// load. It is the `attributeBootError` action. A harness failure during the tests stays `error`:
+/// it is a different payload key, and the reload control cannot explain it.
 ///
 /// Two checks sit around the pool and are modelled only where they change a result:
 ///
@@ -13,6 +19,8 @@
 ///     same test fails with the target file loaded a second time and no mutation. It is the
 ///     `verifyKill` action, and `rewrites` counts it, because a second write would otherwise
 ///     make `INV_one_result` say nothing about the pool.
+///   * `attribute_unmeasured` rewrites a boot-error result to `skipped`. It is also counted in
+///     `rewrites`, and it is why `INV_skipped_has_no_child` became `INV_skip_from_boot_error`.
 ///
 /// The exit code policy (`error` above zero exits 2, `lib/mutation/cli.rb`) is not modelled here;
 /// `bin/check` covers the CLI.
@@ -53,6 +61,9 @@ module runner {
   var rewrites: int -> int
   /// Whether a child was started for the mutant, so `uncovered` can be checked against it.
   var childRan: int -> bool
+  /// Whether the child failed while loading the file rather than while running the tests, so the
+  /// post-pool attribution can turn its `error` into `skipped`.
+  var bootFailed: int -> bool
   /// Whether `--fail-fast` has stopped scheduling.
   var halted: bool
   /// Whether the report has been emitted.
@@ -76,6 +87,7 @@ module runner {
     writes' = Map(0 -> 0, 1 -> 0, 2 -> 0),
     rewrites' = Map(0 -> 0, 1 -> 0, 2 -> 0),
     childRan' = Map(0 -> false, 1 -> false, 2 -> false),
+    bootFailed' = Map(0 -> false, 1 -> false, 2 -> false),
     halted' = false,
     reported' = false,
   }
@@ -89,6 +101,7 @@ module runner {
       result' = result.set(i, "uncovered"),
       writes' = writes.set(i, writes.get(i) + 1),
       childRan' = childRan,
+      bootFailed' = bootFailed,
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
@@ -103,6 +116,7 @@ module runner {
       result' = result,
       writes' = writes,
       childRan' = childRan,
+      bootFailed' = bootFailed,
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
@@ -120,6 +134,7 @@ module runner {
       result' = result,
       writes' = writes,
       childRan' = childRan.set(i, true),
+      bootFailed' = bootFailed,
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
@@ -136,13 +151,49 @@ module runner {
       result' = result.set(i, o),
       writes' = writes.set(i, writes.get(i) + 1),
       childRan' = childRan,
+      bootFailed' = bootFailed,
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
     }
   }
 
-  /// Boot error, no completion signal, or an exit code that does not match the payload.
+  /// The child ended itself with the failed-test status and left no summary. `classify` reads
+  /// exit 1 as a kill, because that is the status the contract reserves for a failed test.
+  action abortChild = {
+    nondet i = oneOf(Mutants)
+    all {
+      phase.get(i) == "running",
+      phase' = phase.set(i, "done"),
+      result' = result.set(i, "killed"),
+      writes' = writes.set(i, writes.get(i) + 1),
+      childRan' = childRan,
+      bootFailed' = bootFailed,
+      halted' = halted,
+      reported' = reported,
+      rewrites' = rewrites,
+    }
+  }
+
+  /// The child could not load the mutated file (`boot_error`). It stays `error` until
+  /// `attributeBootError` decides whether a reload control explains it.
+  action bootFailChild = {
+    nondet i = oneOf(Mutants)
+    all {
+      phase.get(i) == "running",
+      phase' = phase.set(i, "done"),
+      result' = result.set(i, "error"),
+      writes' = writes.set(i, writes.get(i) + 1),
+      childRan' = childRan,
+      bootFailed' = bootFailed.set(i, true),
+      halted' = halted,
+      reported' = reported,
+      rewrites' = rewrites,
+    }
+  }
+
+  /// A harness failure while the tests ran (`test_error`), or an exit code that does not match
+  /// the payload. The reload control cannot explain it, so it stays `error`.
   action failChild = {
     nondet i = oneOf(Mutants)
     all {
@@ -151,6 +202,7 @@ module runner {
       result' = result.set(i, "error"),
       writes' = writes.set(i, writes.get(i) + 1),
       childRan' = childRan,
+      bootFailed' = bootFailed,
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
@@ -166,6 +218,7 @@ module runner {
       result' = result.set(i, "timeout"),
       writes' = writes.set(i, writes.get(i) + 1),
       childRan' = childRan,
+      bootFailed' = bootFailed,
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
@@ -180,6 +233,7 @@ module runner {
     result' = result,
     writes' = writes,
     childRan' = childRan,
+    bootFailed' = bootFailed,
     halted' = true,
     reported' = reported,
     rewrites' = rewrites,
@@ -195,6 +249,7 @@ module runner {
       result' = result.set(i, "skipped"),
       writes' = writes.set(i, writes.get(i) + 1),
       childRan' = childRan,
+      bootFailed' = bootFailed,
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
@@ -214,6 +269,29 @@ module runner {
       phase' = phase,
       writes' = writes,
       childRan' = childRan,
+      bootFailed' = bootFailed,
+      halted' = halted,
+      reported' = reported,
+    }
+  }
+
+  /// `attribute_unmeasured`: after the pool drains, one reload control per file decides whether
+  /// the boot error was the file's (it cannot be reloaded) or the mutation's (it does not load).
+  /// Either way the mutant is `skipped`, because no child measured it.
+  action attributeBootError = {
+    nondet i = oneOf(Mutants)
+    all {
+      not(reported),
+      doneCount == N,
+      phase.get(i) == "done",
+      result.get(i) == "error",
+      bootFailed.get(i),
+      result' = result.set(i, "skipped"),
+      rewrites' = rewrites.set(i, rewrites.get(i) + 1),
+      phase' = phase,
+      writes' = writes,
+      childRan' = childRan,
+      bootFailed' = bootFailed,
       halted' = halted,
       reported' = reported,
     }
@@ -226,6 +304,7 @@ module runner {
     result' = result,
     writes' = writes,
     childRan' = childRan,
+    bootFailed' = bootFailed,
     halted' = halted,
     reported' = true,
     rewrites' = rewrites,
@@ -236,10 +315,13 @@ module runner {
     prepareQueued,
     startChild,
     finishChild,
+    abortChild,
+    bootFailChild,
     failChild,
     timeoutChild,
     halt,
     markSkipped,
+    attributeBootError,
     verifyKill,
     finalize,
   }
@@ -260,8 +342,10 @@ module runner {
   /// The pool keeps at most `W` children in flight.
   val INV_capacity = runningCount <= W
 
-  /// The kill check runs at most once per mutant and never invents a result.
-  val INV_rewrite_only_kills = Mutants.forall(i => rewrites.get(i) <= 1)
+  /// A reported result is rewritten at most once: the kill check, or the boot-error attribution.
+  /// An attribution can only reach `error`, and the kill check only `killed`, so they cannot both
+  /// touch one mutant.
+  val INV_rewrite_at_most_once = Mutants.forall(i => rewrites.get(i) <= 1)
 
   /// A report is only emitted once every mutant is done, so the pool never loses work.
   val INV_report_complete = reported implies doneCount == N
@@ -276,12 +360,14 @@ module runner {
   /// Timeouts are counted, so the denominator covers every scored outcome.
   val INV_denominator_covers_timeouts = den >= countStatus("timeout")
 
-  /// A skipped mutant was never started: `mark_skipped` only touches the queue.
-  val INV_skipped_has_no_child =
-    Mutants.forall(i => result.get(i) == "skipped" implies not(childRan.get(i)))
+  /// A skipped mutant that started a child is a boot error the reload control explained. No other
+  /// path starts a child and then reports `skipped`, so attribution cannot hide a real kill.
+  val INV_skip_from_boot_error =
+    Mutants.forall(i => (result.get(i) == "skipped" and childRan.get(i)) implies bootFailed.get(i))
 
-  /// Skipping is only allowed after a survivor stopped the run, so `--fail-fast` can never
-  /// hide work that would have found a kill.
-  val INV_skip_only_after_survivor =
-    countStatus("skipped") > 0 implies countStatus("survived") > 0
+  /// A skipped mutant that never started was left in the queue by `--fail-fast`, so a survivor
+  /// stopped the run. Attribution mutants ran and are covered by the invariant above.
+  val INV_skip_without_child_after_survivor =
+    Mutants.forall(i =>
+      (result.get(i) == "skipped" and not(childRan.get(i))) implies countStatus("survived") > 0)
 }

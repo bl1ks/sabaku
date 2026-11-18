@@ -58,9 +58,11 @@ survivors:
 ```
 
 Exit codes are `0` ok, `1` when the reported score is below `--min-score`, `2` error,
-so CI can gate on the score. A campaign that leaves any mutant without a result also
-exits `2`: the score is computed over the mutants that ran, so a run with errors is not
-a measurement of the suite:
+so CI can gate on the score. A campaign that loses a mutant for a reason it cannot explain
+exits `2`: the score is computed over the mutants that ran, so a run with errors is not a
+measurement of the suite. A mutant no child could measure (a file that cannot be reloaded,
+or a mutation that does not load) is reported as `skipped` with the reason, stays out of the
+score, and does not fail the run:
 
 ```sh
 mutation run --adapter=rspec --min-score=70 --report=json --output=mutation.json
@@ -110,7 +112,7 @@ CoverageMap (which test hits which line) --- tests_for ---> selected test ids --
                                                                                  v
                                               Runner: fork, reload mutated file, run ids
                                                                                  |
-                        survived | killed | timeout | error | uncovered  <--------'
+                 survived | killed | timeout | error | uncovered | skipped  <--------'
 ```
 
 1. **Analyze.** Each file is parsed once with Prism. Every node the enabled operators claim
@@ -191,14 +193,20 @@ These are real and deliberate; know them before trusting a score.
 - **`require_relative` and `__FILE__` resolve against the original path**, because the child
   evaluates the mutated text with that path. Files that depend on load order or on `END` blocks
   may not reload cleanly.
+- **A file that cannot be reloaded is named, not blamed on the mutant.** When a child cannot load
+  its file, the runner evaluates the original file once more in the same child shape. If that
+  second load also raises, every mutant of the file is `skipped` with the file's error, because no
+  mutation of it can be applied in fork isolation. If only the mutated file raises, the mutant
+  itself does not load and is `skipped` with that error. Neither is scored. `--isolation=process`
+  loads each project file once, so it can score files that fork isolation cannot.
 - **Per-test coverage is collected by running the suite once, instrumented.** On a large suite
   that pass is the dominant fixed cost of a campaign. It is not cached.
 - **`before(:suite)` / `after(:suite)` hooks do not run for a selected subset**, and rspec
   filters (`:focus`, `:if`) are ignored when selecting.
 - **Lines executed only at load time** are not attributed to any test, so a mutant whose only
   execution is class-body code is `uncovered`.
-- **`uncovered` and `error` never enter the score.** They are reported separately so a file with
-  no coverage cannot inflate the number.
+- **`uncovered`, `error`, and `skipped` never enter the score.** They are reported separately so a
+  file with no coverage, or a file no child could measure, cannot inflate the number.
 
 ## Development
 

@@ -130,7 +130,8 @@ raise for an ordinary test failure, and must never call `exit`.
 Runner.new(config, analyzer:, adapter:, coverage_map:) #call -> Array[Result]
 Result = Data.define(:mutant, :status, :duration, :failed_test, :message)
 # status: :killed | :survived | :timeout | :error | :uncovered | :skipped
-# :skipped means --fail-fast stopped before this mutant was scheduled
+# :skipped means --fail-fast stopped before this mutant was scheduled, or no
+# child could measure it (the file cannot be reloaded, or the mutation does not load)
 ```
 
 Mutant lifecycle, the whole state machine:
@@ -142,7 +143,10 @@ candidate --(no covering test)--> uncovered
 candidate --(covering tests)--> queued --> running --(child exits 0)--> survived
                                                  |--(child exits 1)--> killed
                                                  |--(child killed by signal / deadline)--> timeout
-                                                 '--(child exits other / boot error)--> error
+                                                 |--(child exits 1 with no summary)--> killed
+                                                 |--(file cannot be reloaded)--> skipped
+                                                 |--(mutated file does not load)--> skipped
+                                                 '--(other child failure)--> error
 candidate --(--fail-fast saw a survivor first)--> skipped
 ```
 
@@ -162,10 +166,13 @@ file after the splice:
 4. Child: `adapter.run(selected_ids)`, then `exit!(0)` or `exit!(1)`.
 5. Parent: wait with deadline, classify.
 
-Limits, documented in the README and enforced by an `:error` status rather than a silent pass:
-mutations inside `define_method` blocks, inside `Struct`/`Data` field lists, or in a file whose
-reload redefines a constant differently raise or warn on reload. A child that raises during
-`load` is `:error`, never `:survived`.
+Limits, documented in the README and reported rather than silently passed: mutations inside
+`define_method` blocks, inside `Struct`/`Data` field lists, or in a file whose reload redefines a
+constant differently raise or warn on reload. A child that raises during `load` is not attributed
+to the mutant until the runner has evaluated the original file once more in the same child shape.
+If the unmutated file also raises, the file cannot be reloaded in fork isolation and the mutant is
+`:skipped` with the file's error; if only the mutated file raises, the mutation does not load and
+the mutant is `:skipped` with that error. Neither is `:survived`, and neither is scored.
 
 `isolation: :process` replaces steps 2 to 4 with a fresh `ruby` process per mutant running the
 adapter with a filter flag. Slower, and the only option when a project cannot be reloaded.

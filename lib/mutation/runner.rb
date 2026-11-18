@@ -76,6 +76,7 @@ module Mutation
       @fingerprint = nil
       @controls = {}
       @load_hazards = {}
+      @unmeasured = []
     end
 
     # mutants: Array[Mutant] -> Array[Result] in the same order.
@@ -223,6 +224,7 @@ module Mutation
         Boot.fire(@config, :before_fork)
         verify_baseline!
         run_pool(entries) { |entry| start_fork_job(entry) }
+        attribute_unmeasured
         verify_kills(entries)
       when :process
         # No parent preload needed unless selection was disabled and test_ids
@@ -382,7 +384,12 @@ module Mutation
         exit!(2)
       end
 
-      run_tests(control.ids, writer)
+      # A reload control only asks whether the file loads a second time; there
+      # is no test to run and no project change for the adapter to observe.
+      return run_tests(control.ids, writer) unless control.ids.empty?
+
+      write_payload(writer, "ok" => true)
+      exit!(0)
     end
 
     def run_tests(ids, writer)
@@ -390,7 +397,7 @@ module Mutation
         Boot.fire(@config, :before_test_run)
         outcome = @adapter.run(ids)
       rescue Exception => e # rubocop:disable Lint/RescueException
-        write_payload(writer, "boot_error" => true, "error" => describe_exception(e))
+        write_payload(writer, "test_error" => true, "error" => describe_exception(e))
         exit!(2)
       end
 
@@ -511,11 +518,27 @@ module Mutation
                           message: "child died with signal #{status.termsig}")
       end
       if payload.nil?
+        # Exit status 1 already means "a selected test failed" (the child only
+        # writes a payload on its way out). A child that ends itself mid-suite
+        # leaves the status as the only evidence, and it is still a kill:
+        # Active Support's test helpers call exit!, and its abstract_unit sets
+        # Thread.abort_on_exception, either of which takes the process down
+        # before the summary is written.
+        if exit_status == 1
+          return Result.new(mutant: entry.mutant, status: :killed, duration: duration,
+                            message: "the selected tests stopped the child before it " \
+                                     "could report (exit 1)")
+        end
+
         return error_result(entry, "child produced no completion signal " \
                                   "(exit #{exit_status.inspect})", duration)
       end
-      if payload["boot_error"] || exit_status == 2
-        return error_result(entry, payload["error"] || "child boot error", duration)
+      if payload["test_error"]
+        return error_result(entry, payload["error"] || "the child failed while running tests",
+                            duration)
+      end
+      if payload["boot_error"]
+        return deferred_unmeasured(entry, payload, duration)
       end
       if payload["ok"] && exit_status == 0
         return Result.new(mutant: entry.mutant, status: :survived, duration: duration)
@@ -530,6 +553,58 @@ module Mutation
         "inconsistent child result (exit #{exit_status.inspect}, payload #{payload.inspect})",
         duration
       )
+    end
+
+    # A child that could not load its file has not tested the mutant. The two
+    # causes look identical from here and only one is the mutation's fault: the
+    # file may not be reloadable at all (fork isolation re-evaluates it over the
+    # parent's copy, so a second load that raises or warns as :raise breaks
+    # every mutant of that file), or the mutation itself may not load. The
+    # answer needs a second child, so the result stays an error until the pool
+    # drains and `attribute_unmeasured` can ask the question without holding up
+    # the mutants still in flight.
+    def deferred_unmeasured(entry, payload, duration)
+      reason = payload["error"] || "the child failed while loading the mutated file"
+      # Process isolation builds the child from the mutated file, so a boot
+      # failure there can equally be a setup or harness failure. Only the fork
+      # path can ask a second question and tell the two apart.
+      return error_result(entry, reason, duration) unless @isolation == :fork
+
+      @unmeasured << [entry, reason]
+      error_result(entry, reason, duration)
+    end
+
+    # One reload control per distinct file, then rewrite each unexplained load
+    # failure with the cause the control proved. Same shape as verify_kills: a
+    # batch of controls after the pool, never inside finish_job.
+    def attribute_unmeasured
+      return if @unmeasured.empty?
+
+      pending = @unmeasured
+      @unmeasured = []
+      paths = pending.map { |entry, _reason| entry.mutant.path.to_s }.uniq
+      controls = paths.map do |path|
+        Control.new(key: [:reload, path], index: -1, ids: [], reload: true,
+                    path: path, text: source_for(path).text)
+      end
+      verdicts = run_controls(controls)
+
+      pending.each do |entry, reason|
+        verdict = verdicts[[:reload, entry.mutant.path.to_s]]
+        next if verdict.nil?
+
+        entry.result =
+          if verdict[:ok]
+            Result.new(mutant: entry.mutant, status: :skipped,
+                       duration: entry.result.duration,
+                       message: "not measured: the mutated file does not load (#{reason})")
+          else
+            detail = verdict[:message] || "the file raised when it was loaded again"
+            Result.new(mutant: entry.mutant, status: :skipped,
+                       duration: entry.result.duration,
+                       message: "not measured: cannot reload the file in fork isolation (#{detail})")
+          end
+      end
     end
 
     # ---- neutral runs -------------------------------------------------------
@@ -686,8 +761,16 @@ module Mutation
       nil
     end
 
+    # The message travels to the parent as one JSON line, so it has to be valid
+    # UTF-8. Exceptions raised by a test can carry the project's bytes in any
+    # encoding: Active Support's transliterate raises with an ASCII-8BIT message
+    # holding a GB18030 byte. `JSON.generate` refuses that, and a swallowed
+    # serialization error used to cost the parent the whole result.
     def describe_exception(exception)
       message = "#{exception.class}: #{exception.message}"
+      unless message.encoding == Encoding::UTF_8 && message.valid_encoding?
+        message = message.dup.force_encoding(Encoding::UTF_8).scrub("?")
+      end
       message.length > 500 ? message[0, 500] : message
     rescue StandardError
       "unknown exception"

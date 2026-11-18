@@ -89,20 +89,23 @@ module Mutation
           end
 
           klass, method_name = pair
+          # A project may override `run` (Active Support's isolation module does,
+          # to fork the test). Anything it returns that is not a Result must come
+          # back as this test's failure, not as an exception that takes the child
+          # down: the adapter contract is to never raise for a failing test.
           begin
             instance = klass.new(method_name)
             result = instance.run
+            next if result.passed? || result.skipped? || instance.passed? || instance.skipped?
+
+            failure = result.failures.first || instance.failures.first
+            # An assertion failure is identified by failed_id; only an unexpected
+            # exception carries an Exception worth reporting separately.
+            error = failure.is_a?(::Minitest::UnexpectedError) ? failure.error : nil
+            return Outcome.new(ok: false, failed_id: id, error: error)
           rescue Exception => e # rubocop:disable Lint/RescueException
             return Outcome.new(ok: false, failed_id: id, error: e)
           end
-
-          next if result.passed? || result.skipped? || instance.passed? || instance.skipped?
-
-          failure = result.failures.first || instance.failures.first
-          # An assertion failure is identified by failed_id; only an unexpected
-          # exception carries an Exception worth reporting separately.
-          error = failure.is_a?(::Minitest::UnexpectedError) ? failure.error : nil
-          return Outcome.new(ok: false, failed_id: id, error: error)
         end
 
         Outcome.new(ok: true, failed_id: nil, error: nil)

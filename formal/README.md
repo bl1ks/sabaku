@@ -2,9 +2,9 @@
 
 What this directory proves about the mutation engine, what it checks, and what it leaves out.
 
-Run everything with `bin/formal`. That takes about two minutes. `bin/formal --deep` raises the
-Quint bound from six steps to ten, which is a complete three-mutant campaign, and takes about
-five minutes. Tool versions: Lean 4.36.0, Quint 0.33.1, Apalache 0.62.4.
+Run everything with `bin/formal`. That takes about four minutes. `bin/formal --deep` raises the
+Quint bound from six steps to ten; "What Quint checks" says what that bound now covers. Tool
+versions: Lean 4.36.0, Quint 0.33.1, Apalache 0.62.4.
 
 ## Three checks, three questions
 
@@ -82,19 +82,22 @@ Checked invariants:
 - `INV_report_has_every_result`: a reported campaign has an outcome for every mutant.
 - `INV_score_bound`: the score numerator never exceeds the denominator.
 - `INV_denominator_covers_timeouts`: timeouts are counted.
-- `INV_skipped_has_no_child`: a `--fail-fast` skipped mutant never started a child.
-- `INV_skip_only_after_survivor`: nothing is skipped before a survivor stopped the run.
-- `INV_rewrite_only_kills`: the kill check runs at most once per mutant.
+- `INV_skip_from_boot_error`: a skipped mutant that started a child is a boot error the reload
+  control explained.
+- `INV_skip_without_child_after_survivor`: a skipped mutant that never started was left in the
+  queue by `--fail-fast`, so a survivor stopped the run.
+- `INV_rewrite_at_most_once`: a reported result is rewritten at most once, by the kill check or by
+  the boot-error attribution.
 
 Two checks sit around the pool and are modelled only where they can change a result. The baseline
 runs before any mutant exists, so it either lets the campaign start or ends it with no result at
-all. The kill check rewrites a reported `killed` to `error`, which the model records as `rewrites`
-rather than as a second write, because a second write would make `INV_one_result` say nothing
-about the pool.
+all. The kill check rewrites a reported `killed` to `error`, and the attribution rewrites an
+unexplained boot error to `skipped`; the model records both as `rewrites` rather than as second
+writes, because a second write would make `INV_one_result` say nothing about the pool.
 
-The default gate checks three mutants with two workers up to six steps; `--deep` checks up to ten
-steps, which reaches `finalize`. Apalache decides every interleaving inside the bound, not a
-sample.
+The default gate checks three mutants with two workers up to six steps; `--deep` goes to ten,
+which reaches `finalize` for a campaign with no boot error. Apalache decides every interleaving
+inside the bound, not a sample.
 
 Each invariant is shown able to fail: `formal/quint/variants.sh` flips one fault switch in the
 model, and the gate requires the variant to violate an invariant. The variants are generated, not
@@ -141,8 +144,11 @@ contract:
   twice, and a construct the screen does not recognize would leave its kills unverified. The probe
   itself is exact — it runs the same test with the file loaded once more and no mutation.
 - Nothing about performance.
-- Quint is bounded. The honest model is decided for three mutants, two workers, and ten steps in
-  `--deep`; larger pools are not checked.
+- Quint is bounded. The honest model is decided for three mutants, two workers, and six steps in
+  the default gate; larger pools are not checked. `--deep` raises the bound to ten steps, which is
+  a complete campaign when no child fails to load. It does not reach the boot-error attribution
+  path, and since that state was added the ten-step run does not finish in the gate's budget, so
+  the runner classification is currently confirmed at six steps.
 
 ## Findings
 
@@ -158,8 +164,8 @@ the covered code changes.
 ## Reproducing
 
 ```
-bin/formal          # about 2 minutes
-bin/formal --deep   # about 5 minutes, reaches finalize with three mutants
+bin/formal          # about 4 minutes, six steps
+bin/formal --deep   # ten steps; reaches finalize for a campaign with no boot error
 ```
 
 The gate fails if a proof is unfinished, a replay record disagrees, the honest model violates an

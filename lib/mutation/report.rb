@@ -51,6 +51,7 @@ module Mutation
       out << status_lines
       out << survivor_lines
       out << error_lines
+      out << unmeasured_lines
       out << file_lines
       out
     end
@@ -82,7 +83,7 @@ module Mutation
       when :timeout then "  <- killed by the clock, not by a test"
       when :uncovered then "  (no test covers the line; not scored)"
       when :error then "  <- no result: never tested, not scored"
-      when :skipped then "  (not reached: --fail-fast stopped the run)"
+      when :skipped then "  (not run or not measurable; not scored)"
       else ""
       end
     end
@@ -120,6 +121,33 @@ module Mutation
       return "(no message)" if text.empty?
 
       text.length > limit ? "#{text[0, limit - 1]}..." : text
+    end
+
+    # Skipped covers two very different things: --fail-fast stopped the run
+    # (expected, the user asked for it) and a mutant nobody could measure (a
+    # file that cannot be reloaded, or a mutation that does not load). Only the
+    # second is information the user cannot get from the count, so the terminal
+    # names those and leaves the fail-fast remainder to the status line.
+    def unmeasured_lines
+      unmeasured = results.select do |result|
+        result.status == :skipped && result.message.to_s.start_with?("not measured: ")
+      end
+      return "" if unmeasured.empty?
+
+      groups = unmeasured.group_by { |result| [result.mutant.path, result.message] }
+                        .sort_by { |_key, list| -list.size }
+      shown = groups.first(10)
+      out = +"not measured (not scored):\n"
+      shown.each do |(path, message), list|
+        where = list.size == 1 ? "#{path}:#{list.first.mutant.line}" : path
+        reason = message.delete_prefix("not measured: ")
+        out << format("  %5d  %s  %s\n", list.size, where, clamp_message(reason, limit: 100))
+      end
+      rest = groups.drop(shown.size).sum { |_key, list| list.size }
+      if rest.positive?
+        out << format("  %5d  more in %d other reasons\n", rest, groups.size - shown.size)
+      end
+      out << "\n"
     end
 
     def file_lines
