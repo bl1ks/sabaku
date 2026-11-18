@@ -3,15 +3,17 @@
 Mutation testing for Ruby test suites. It rewrites one AST node of your source at a time, runs
 **only the tests that cover that line**, and reports the mutants your suite failed to notice.
 
-The measurement follows Petrovic and Ivankovic, *"State of Mutation Testing at Google"*
-(ICSE-SEIP 2018). Four of their ideas decide the design here:
+The engine borrows the shape of Google's mutation service (Petrovic & Ivankovic, *"State of
+Mutation Testing at Google"*, ICSE-SEIP 2018) and drops the parts that cost more than they pay:
 
-| Paper | This library |
+| Idea | This library |
 | --- | --- |
 | Mutate only the lines a change touches | `--diff=FILE.json` restricts mutants to listed lines |
-| Never mutate a line without statement coverage | a mutant with no covering test is `uncovered`, never run, never scored |
-| Suppress *arid* nodes that tests cannot usefully assert on | `Mutation::Aridity`, Ruby rules, recursive over compound nodes |
-| At most one mutant per line | deterministic seed-derived pick per line, `--per-line=N` to widen |
+| Never mutate a line without coverage | a mutant with no covering test is `uncovered`, never run, never scored |
+| Suppress *arid* nodes | `Mutation::Aridity`, Ruby rules, recursive over compound nodes |
+| Spend the line on the best operator, not a random one | `Registry::PRODUCTIVITY`, earliest offset as the tie break |
+| A mutant is a place in the code, not a byte range | id hashes path, scope, AST path, operator and replacement |
+| A survivor no test ever saw is not the same as one a test missed | the dry-run probe pass splits `not_infected` from `not_detected` |
 
 ## Install
 
@@ -47,6 +49,7 @@ ruby-mutation 0.1.0  adapter=minitest  files=1  mutants=11  jobs=1
 
   killed         8   72.7%
   survived       2   18.2%  <- your tests did not notice these
+    not detected 1, not infected 1
   timeout        0    0.0%  <- killed by the clock, not by a test
   uncovered      1    9.1%  (no test covers the line; not scored)
 
@@ -81,7 +84,6 @@ tier has no test at all: the suite only exercises the ten-item tier.
 | `--adapter=minitest\|rspec` | `minitest` | which suite to drive |
 | `--jobs=N` | `1` | mutants in flight at once |
 | `--timeout=SEC` | `5` | per-mutant deadline |
-| `--seed=N` | `0` | fixes the per-line operator choice |
 | `--operators=aor,ror,...` | all | restrict mutation operators |
 | `--per-line=N\|all` | `1` | mutants kept per line; `all` keeps every candidate |
 | `--diff=PATH` | off | JSON `{"path" => [lines]}` allowlist |
@@ -92,6 +94,7 @@ tier has no test at all: the suite only exercises the ten-item tier.
 | `--require=PATH` | none | require after coverage starts, before the tests (repeatable) |
 | `--setup=PATH` | none | Ruby file with boot hooks for Rails and friends |
 | `--[no-]coverage` | on | test selection; `--no-coverage` runs the whole suite per mutant |
+| `--[no-]weak` | on | probe the dry run and decide uninfected survivors without running them |
 | `--isolation=fork\|process` | `fork` | reload a preloaded suite, or boot a fresh process |
 | `--report=terminal\|json\|quiet` | `terminal` | output |
 | `--output=PATH` | none | write the JSON report |
@@ -103,12 +106,18 @@ Run it from the project root. `lib`, `test` and `spec` are put on `$LOAD_PATH`, 
 are discovered with `test/**/*_test.rb` or `spec/**/*_spec.rb`. Set `RUBY_MUTATION_TEST_GLOB`
 to override the pattern. Set `RUBY_MUTATION_NO_CACHE=1` to ignore the result cache.
 
+A mutant id is `sha1(path, scope, AST path, operator, replacement)`, so moving a method down a
+file keeps its cached verdict. Editing the method changes the id of every mutant inside it, which
+is the smallest unit the cache can safely reuse.
+
 ## What it does, in five stages
 
 ```
 Source (Prism AST) --operators--> candidates --aridity--> --diff--> --per line--> Mutants
                                                                                  |
 CoverageMap (which test hits which line) --- tests_for ---> selected test ids --->|
+                                                                                 v
+                                   weak pass: probe the value, decide not_infected |
                                                                                  v
                                               Runner: fork, reload mutated file, run ids
                                                                                  |
@@ -120,14 +129,18 @@ CoverageMap (which test hits which line) --- tests_for ---> selected test ids --
    exact source slice or the run fails loudly rather than emitting a no-op mutant.
 2. **Suppress aridity.** Nodes whose mutation no test can meaningfully assert on are dropped,
    along with the guarded debug-log lines that only serve logging.
-3. **Select per line.** Candidates are grouped by `(path, line)`; one survives, chosen from a
-   seed so two runs on the same code pick the same mutant. That is the paper's one-mutant-per-line
-   rule, which keeps the report readable and stops the same line being surfaced five times.
+3. **Select per line.** Candidates are grouped by `(path, line)` and sorted by operator
+   productivity, then by offset. The line keeps the first `--per-line` that re-parse, with no
+   random draw, so two runs on the same code keep the same mutants and the cache stays usable.
 4. **Collect coverage.** The suite runs once, instrumented, and every test's newly-hit lines are
    recorded. A mutant with no covering test is `uncovered`: not run, not scored.
-5. **Execute.** For each remaining mutant the parent forks, the child re-evaluates the mutated
+5. **Probe the values.** The suite runs a second time with probe-instrumented copies of the
+   mutated files loaded over the originals. A probe returns the original value, then evaluates
+   each replacement against it. Every covering test that reached the expression is recorded, and
+   a mutant no test saw change is `survived` with reason `not_infected`, without a child.
+6. **Execute.** For each remaining mutant the parent forks, the child re-evaluates the mutated
    file, runs the selected tests, and reports through a pipe. The parent enforces the deadline,
-   kills and reaps, and classifies the exit.
+   kills and reaps, and classifies the exit. A survivor gets `reason: not_detected`.
 
 ### Operators
 
@@ -150,7 +163,12 @@ CoverageMap (which test hits which line) --- tests_for ---> selected test ids --
 
 Every operator is on by default. An operator widens the candidate pool; `--per-line` decides how
 much of that pool a campaign runs, so `--per-line=1` stays cheap while `--per-line=all` runs the
-whole pool the way mutant does.
+whole pool.
+
+The per-line budget goes to `ror`, `lcr`, `aor`, `cond`, `uoi`, `bool`, `literal`, `str`, `sbr`,
+`selector`, `call`, `assign`, `return`, `control`, in that order. Relational and conditional
+rewrites survive the most often in practice, literal and structural ones the least, so a budget
+of one spends it where it teaches the most.
 
 A mutation is applied by re-evaluating the file, and re-evaluation redefines a method but never
 undefines one. `sbr` therefore never removes a
@@ -201,8 +219,12 @@ These are real and deliberate; know them before trusting a score.
   `require` or `autoload`: the file's first load. A retry that still cannot load is `skipped`
   with the reason. Neither is scored. `--isolation=process` uses the same first-load loader for
   every mutant.
-- **Per-test coverage is collected by running the suite once, instrumented.** On a large suite
-  that pass is the dominant fixed cost of a campaign. It is not cached.
+- **Per-test coverage is collected by running the suite once, instrumented, and the weak pass
+  runs it once more.** On a large suite those passes are the dominant fixed cost of a campaign.
+  Neither is cached. `--no-weak` removes the second pass.
+- **Weak probes only decide pure expressions.** Arithmetic, relational and logical nodes over
+  literals, locals, ivars, `self` and constants. A method call anywhere in the expression keeps
+  its mutant on the real-run path, so a missing `not_infected` label is not a correctness bug.
 - **`before(:suite)` / `after(:suite)` hooks do not run for a selected subset**, and rspec
   filters (`:focus`, `:if`) are ignored when selecting.
 - **Lines executed only at load time** are not attributed to any test, so a mutant whose only

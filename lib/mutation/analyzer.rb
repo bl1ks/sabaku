@@ -1,17 +1,23 @@
 # frozen_string_literal: true
 
 require "prism"
-require "zlib"
 require_relative "errors"
 require_relative "source"
 require_relative "mutant"
 require_relative "operators/registry"
 require_relative "aridity"
+require_relative "weak"
 
 module Mutation
   # Turns sources into the mutants that will be run: walk, drop arid nodes, ask operators,
-  # filter by diff, keep a seeded subset per line, and emit in a stable order.
+  # filter by diff, keep the most productive subset per line, and emit in a stable order.
+  #
+  # Each candidate carries its identity coordinates: the enclosing scope, its path inside
+  # that scope, the operator and the replacement. Offsets are kept for splicing but do not
+  # take part in `Mutant#id`, so a method that moves keeps its cache entries.
   class Analyzer
+    TOP_SCOPE = "top"
+
     attr_reader :sources, :config
 
     def initialize(sources, config)
@@ -50,13 +56,15 @@ module Mutation
 
     def analyze_source(source)
       candidates = []
-      source.ast.compact_child_nodes.each do |child|
-        walk(child, [source.ast], source, candidates)
+      @scope_ordinals = Hash.new(0)
+      source.ast.compact_child_nodes.each_with_index do |child, index|
+        walk(child, [source.ast], source, candidates,
+             scope: TOP_SCOPE, path: index.to_s, in_def: false)
       end
       select_per_line(source, candidates)
     end
 
-    def walk(node, ancestors, source, candidates)
+    def walk(node, ancestors, source, candidates, scope:, path:, in_def:)
       return if @aridity.arid?(node, ancestors)
 
       applicable = @operators.select do |operator|
@@ -74,12 +82,38 @@ module Mutation
             line = replacement.line || node.location.start_line
             next unless diff_covers?(source, line)
 
-            candidates << build_mutant(source, node, operator, replacement, line)
+            candidates << build_mutant(source, node, operator, replacement, line,
+                                       scope: scope, path: path, in_def: in_def)
           end
         end
       end
 
-      node.compact_child_nodes.each { |child| walk(child, ancestors + [node], source, candidates) }
+      inner_scope, inner_def = descend_scope(node, source, scope, in_def)
+      reset = inner_scope != scope || inner_def != in_def
+      node.compact_child_nodes.each_with_index do |child, index|
+        child_path = reset || path.empty? ? index.to_s : "#{path}/#{index}"
+        walk(child, ancestors + [node], source, candidates,
+             scope: inner_scope, path: child_path, in_def: inner_def)
+      end
+    end
+
+    # The identity scope a node opens for its children. `in_def` tracks whether the
+    # `def` body that encloses the node is a method, which is where weak probes can run.
+    def descend_scope(node, source, scope, in_def)
+      case node
+      when Prism::DefNode
+        base = "#{scope}##{node.name}"
+        # A file may reopen a class and define the same method twice. The second body is a
+        # different place, so it gets its own scope and its mutants keep distinct ids.
+        count = (@scope_ordinals[base] += 1)
+        [count == 1 ? base : "#{base}~#{count}", true]
+      when Prism::ClassNode, Prism::ModuleNode
+        ["#{scope}::#{source.slice(node.constant_path)}", false]
+      when Prism::SingletonClassNode
+        ["#{scope}::<singleton>", false]
+      else
+        [scope, in_def]
+      end
     end
 
     def verify!(operator, replacement, actual, source, node)
@@ -111,7 +145,7 @@ module Mutation
       file_ranges.any? { |range| range.respond_to?(:cover?) && range.cover?(line) }
     end
 
-    def build_mutant(source, node, operator, replacement, line)
+    def build_mutant(source, node, operator, replacement, line, scope:, path:, in_def:)
       location = node.location
       Mutant.new(
         path: source.rel_path,
@@ -122,19 +156,27 @@ module Mutation
         original: replacement.original,
         replacement: replacement.replacement,
         start_offset: location.start_offset,
-        end_offset: location.end_offset
+        end_offset: location.end_offset,
+        scope: scope,
+        ast_path: path,
+        weak: in_def && Weak.eligible?(operator.id, node)
       )
     end
 
+    # The per-line budget goes to the most productive operator first, then to the
+    # earliest offset, with names as the final tie break. No draw and no seed: the
+    # same code always keeps the same mutants, so cache entries stay usable.
     def select_per_line(source, candidates)
       chosen = []
-      candidates.uniq(&:id).group_by(&:line).each do |line, group|
-        ordered = group.sort_by { |mutant| [mutant.start_offset, mutant.operator.to_s, mutant.replacement] }
-        random = Random.new(config.seed ^ Zlib.crc32("#{source.rel_path}:#{line}"))
+      candidates.uniq(&:id).group_by(&:line).each do |_line, group|
+        ordered = group.sort_by do |mutant|
+          [Operator::Registry.rank(mutant.operator), mutant.start_offset,
+           mutant.operator.to_s, mutant.replacement]
+        end
         wanted = [config.per_line, ordered.length].min
         taken = 0
-        while taken < wanted && !ordered.empty?
-          mutant = ordered.delete_at(random.rand(ordered.length))
+        ordered.each do |mutant|
+          break if taken >= wanted
           next unless candidate_parses?(mutant, source)
 
           chosen << mutant

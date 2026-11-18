@@ -18,6 +18,18 @@ module KitchenSink
     [total, label, enabled]
   end
 
+  def self.spin(flag, value)
+    while flag
+      value += 1
+    end
+  end
+
+  def self.guard(flag, value)
+    if flag
+      value + 1
+    end
+  end
+
   def self.names(records)
     records.map { |record| record[:name] }.select { |name| name }.first
   end

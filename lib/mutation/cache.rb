@@ -11,7 +11,7 @@ module Mutation
   # The key is deterministic in exactly the inputs that can change what running a
   # mutant means:
   #
-  #   * the mutant id (which pins path/offset/operator/replacement)
+  #   * the mutant id (which pins path/scope/ast path/operator/replacement)
   #   * sha256 of the full mutated source that would be loaded
   #   * adapter name
   #   * Ruby version
@@ -23,7 +23,7 @@ module Mutation
   # `ENV["RUBY_MUTATION_NO_CACHE"]` is the kill switch; it is read here rather
   # than added to the frozen Config.
   class Cache
-    FORMAT_VERSION = 2
+    FORMAT_VERSION = 3
     KNOWN_STATUSES = %i[killed survived timeout error uncovered].freeze
     FALSE_VALUES = %w[0 false no off].freeze
     FILE_NAME = ".mutation-cache.json"
@@ -79,20 +79,23 @@ module Mutation
       return nil unless KNOWN_STATUSES.include?(status)
       return nil if status == :uncovered
 
+      reason = entry["reason"] || entry[:reason]
       {
         status: status,
         failed_test: entry["failed_test"] || entry[:failed_test],
-        message: entry["message"] || entry[:message]
+        message: entry["message"] || entry[:message],
+        reason: reason.nil? ? nil : reason.to_sym
       }
     end
 
-    def store(key, status:, failed_test: nil, message: nil)
+    def store(key, status:, failed_test: nil, message: nil, reason: nil)
       return nil unless @enabled
 
       @entries[key.to_s] = {
         "status" => status.to_s,
         "failed_test" => failed_test,
-        "message" => message
+        "message" => message,
+        "reason" => reason&.to_s
       }
       @dirty = true
       self

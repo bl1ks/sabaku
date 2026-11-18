@@ -166,14 +166,48 @@ class CLITest < Minitest::Test
     end
   end
 
+  # A probe decides this survivor from the dry run, so its duration proves no child ran.
+  def test_weak_probes_decide_a_survivor_without_running_it
+    in_project do
+      File.write("lib/spin.rb", "class Spin\n  def sub(a, b)\n    a - b\n  end\nend\n")
+      FileUtils.mkdir_p("test")
+      write_test("assert_equal 5, Spin.new.sub(5, 0)\n", basename: "spin", klass: "SpinTest")
+
+      code, out, err = start(["run", "lib", "--operators=aor", "--per-line=all", "--report=json"])
+      payload = JSON.parse(out.lines.last)
+
+      assert_equal 0, code, err
+      infected = payload["results"].select { |result| result["reason"] == "not_infected" }
+      assert_equal 1, infected.size
+      assert_equal "a + b", infected.first["mutant"]["replacement"]
+      assert_equal 0.0, infected.first["duration"]
+      assert_equal({ "not_infected" => 1 }, payload["survived_reasons"])
+    end
+  end
+
+  def test_no_weak_runs_the_mutant_and_records_not_detected
+    in_project do
+      File.write("lib/spinner.rb", "class Spinner\n  def sub(a, b)\n    a - b\n  end\nend\n")
+      FileUtils.mkdir_p("test")
+      write_test("assert_equal 5, Spinner.new.sub(5, 0)\n", basename: "spinner", klass: "SpinnerTest")
+
+      code, out, err = start(["run", "lib", "--operators=aor", "--per-line=all",
+                              "--no-weak", "--report=json"])
+      payload = JSON.parse(out.lines.last)
+
+      assert_equal 0, code, err
+      assert_equal({ "not_detected" => 1 }, payload["survived_reasons"])
+    end
+  end
+
   private
 
-  def write_test(assertion)
-    File.write("test/counter_test.rb", <<~RUBY)
+  def write_test(assertion, basename: "counter", klass: "CounterTest")
+    File.write("test/#{basename}_test.rb", <<~RUBY)
       require "minitest/autorun"
-      require "counter"
+      require "#{basename}"
 
-      class CounterTest < Minitest::Test
+      class #{klass} < Minitest::Test
         def test_mul
           #{assertion.strip}
         end

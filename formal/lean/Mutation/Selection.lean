@@ -1,154 +1,75 @@
 /-
-  The one-mutant-per-line selection of `lib/mutation/analyzer.rb`.
+  The per-line selection of `lib/mutation/analyzer.rb`.
 
-  `select_per_line` groups the candidates of one line, orders them deterministically, and draws
-  `min per_line length` of them with `Random#rand`. The RNG is modelled by its only contract,
-  `rand n < n`. Everything the campaign promises follows from that contract alone, so these
-  theorems do not depend on Mersenne Twister.
+  `select_per_line` orders a line's candidates by operator rank, then offset, then operator name,
+  then replacement. It keeps the first `per_line` candidates that re-parse. The order is a pure
+  function of the candidates, so the model is a left-to-right take and not a random draw: two
+  analyses of the same file keep the same mutants, and the cache keeps every id it stored.
 -/
 
 universe u
 
 namespace Mutation.Selection
 
-/-- What `Random#rand n` guarantees for `n > 0`. -/
-def RngOk (rand : Nat → Nat) : Prop := ∀ n, 0 < n → rand n < n
+/-- The line's budget: keep the first `k` candidates of the ordered pool. -/
+def pick (k : Nat) (pool : List α) : List α := pool.take k
 
-/-- One draw: take the item at the RNG's index and remove that position. -/
-def pick (rand : Nat → Nat) (h : RngOk rand) : Nat → List α → List α
-  | 0, _ => []
-  | k + 1, [] => []
-  | k + 1, x :: xs =>
-      let i := rand (x :: xs).length
-      have hi : i < (x :: xs).length := h _ (by simp)
-      (x :: xs).get ⟨i, hi⟩ :: pick rand h k ((x :: xs).eraseIdx i)
+theorem pick_zero {α : Type u} (pool : List α) : pick 0 pool = [] := rfl
 
-theorem pick_zero (rand : Nat → Nat) (h : RngOk rand) {α : Type u} (pool : List α) :
-    pick rand h 0 pool = [] := rfl
+theorem pick_nil {α : Type u} (k : Nat) : pick k ([] : List α) = [] := by
+  cases k <;> rfl
 
-theorem pick_nil (rand : Nat → Nat) (h : RngOk rand) {α : Type u} (k : Nat) :
-    pick rand h (k + 1) ([] : List α) = [] := rfl
+theorem pick_cons {α : Type u} (k : Nat) (x : α) (xs : List α) :
+    pick (k + 1) (x :: xs) = x :: pick k xs := rfl
 
-theorem pick_cons (rand : Nat → Nat) (h : RngOk rand) {α : Type u} (k : Nat) (x : α)
-    (xs : List α) :
-    pick rand h (k + 1) (x :: xs) =
-      (x :: xs).get ⟨rand (x :: xs).length, h (x :: xs).length (by simp)⟩ ::
-        pick rand h k ((x :: xs).eraseIdx (rand (x :: xs).length)) := rfl
-
-theorem mem_of_mem_eraseIdx {α : Type u} {l : List α} {i : Nat} {x : α}
-    (h : x ∈ l.eraseIdx i) : x ∈ l := by
-  induction l generalizing i with
-  | nil => simp at h
+/-- A kept candidate was in the line's group. -/
+theorem pick_subset (k : Nat) (pool : List α) {x : α} (hx : x ∈ pick k pool) : x ∈ pool := by
+  induction pool generalizing k with
+  | nil => simp [pick] at hx
   | cons y ys ih =>
-      cases i with
-      | zero =>
-          rw [List.eraseIdx_cons_zero] at h
-          exact List.mem_cons_of_mem y h
+      cases k with
+      | zero => simp [pick] at hx
       | succ k =>
-          rw [List.eraseIdx_cons_succ] at h
-          rcases List.mem_cons.mp h with rfl | h
-          · simp
-          · exact List.mem_cons_of_mem y (ih h)
-
-theorem length_eraseIdx_lt {α : Type u} {l : List α} {i : Nat} (h : i < l.length) :
-    (l.eraseIdx i).length = l.length - 1 := by
-  rw [List.length_eraseIdx]
-  simp [h]
-
-theorem perm_get_eraseIdx {α : Type u} (l : List α) (i : Nat) (h : i < l.length) :
-    (l.get ⟨i, h⟩ :: l.eraseIdx i).Perm l := by
-  induction l generalizing i with
-  | nil => simp at h
-  | cons y ys ih =>
-      cases i with
-      | zero => simp
-      | succ k =>
-          rw [List.eraseIdx_cons_succ, List.get_cons_succ]
-          have hk : k < ys.length := by simpa using h
-          refine (List.Perm.swap y (ys.get ⟨k, hk⟩) (ys.eraseIdx k)).trans ?_
-          exact List.Perm.cons y (ih k hk)
-
-/-- A draw of `k` items from one line's group is a sublist of that group. -/
-theorem pick_subset (rand : Nat → Nat) (h : RngOk rand) (k : Nat) (pool : List α)
-    {x : α} (hx : x ∈ pick rand h k pool) : x ∈ pool := by
-  induction k generalizing pool with
-  | zero => simp [pick_zero] at hx
-  | succ k ih =>
-      cases pool with
-      | nil => simp [pick_nil] at hx
-      | cons y ys =>
           rw [pick_cons] at hx
           rcases List.mem_cons.mp hx with rfl | hx
-          · exact List.getElem_mem _
-          · have hx' : x ∈ (y :: ys).eraseIdx (rand (y :: ys).length) := ih _ hx
-            exact mem_of_mem_eraseIdx hx'
+          · exact List.mem_cons_self ..
+          · exact List.mem_cons_of_mem _ (ih k hx)
 
-/-- One group keeps exactly `min per_line (group size)` mutants, so it never keeps more than
-    `per_line`. -/
-theorem pick_length (rand : Nat → Nat) (h : RngOk rand) (k : Nat) (pool : List α) :
-    (pick rand h k pool).length = min k pool.length := by
-  induction k generalizing pool with
-  | zero => simp [pick_zero]
-  | succ k ih =>
-      cases pool with
-      | nil => simp [pick_nil]
-      | cons y ys =>
-          have hi : rand (y :: ys).length < (y :: ys).length := h _ (by simp)
-          rw [pick_cons, List.length_cons, ih ((y :: ys).eraseIdx (rand (y :: ys).length)),
-            length_eraseIdx_lt hi]
-          have hlen : (y :: ys).length = ys.length + 1 := rfl
-          rw [hlen, Nat.succ_min_succ]
-          omega
+/-- One group keeps exactly `min per_line (group size)` mutants. -/
+theorem pick_length (k : Nat) (pool : List α) :
+    (pick k pool).length = min k pool.length := by
+  unfold pick
+  exact List.length_take
 
-theorem pick_le (rand : Nat → Nat) (h : RngOk rand) (k : Nat) (pool : List α) :
-    (pick rand h k pool).length ≤ k := by
+theorem pick_le (k : Nat) (pool : List α) : (pick k pool).length ≤ k := by
   rw [pick_length]
   exact Nat.min_le_left _ _
 
 /-- With `--per-line=1` one line contributes at most one mutant. -/
-theorem pick_one (rand : Nat → Nat) (h : RngOk rand) (pool : List α) :
-    (pick rand h 1 pool).length ≤ 1 :=
-  pick_le rand h 1 pool
+theorem pick_one (pool : List α) : (pick 1 pool).length ≤ 1 :=
+  pick_le 1 pool
 
-/-- Drawing at least as many as the group holds keeps the whole group, so a second analysis of
-    the same line cannot drop a mutant the first one chose. -/
-theorem pick_all_perm (rand : Nat → Nat) (h : RngOk rand) (k : Nat) (pool : List α)
-    (hk : pool.length ≤ k) : (pick rand h k pool).Perm pool := by
-  induction k generalizing pool with
-  | zero =>
-      cases pool with
-      | nil => simp [pick_zero]
-      | cons y ys => simp at hk
-  | succ k ih =>
-      cases pool with
-      | nil => simp [pick_nil]
-      | cons y ys =>
-          have hi : rand (y :: ys).length < (y :: ys).length := h _ (by simp)
-          rw [pick_cons]
-          have hperm := perm_get_eraseIdx (y :: ys) (rand (y :: ys).length) hi
-          have hrec : (pick rand h k ((y :: ys).eraseIdx (rand (y :: ys).length))).Perm
-              ((y :: ys).eraseIdx (rand (y :: ys).length)) := by
-            refine ih _ ?_
-            rw [length_eraseIdx_lt hi]
-            omega
-          exact (List.Perm.cons ((y :: ys).get ⟨rand (y :: ys).length, hi⟩) hrec).trans hperm
+/-- Asking for at least as many as the group holds keeps the whole group. -/
+theorem pick_all (k : Nat) (pool : List α) (hk : pool.length ≤ k) : pick k pool = pool := by
+  unfold pick
+  exact List.take_of_length_le hk
 
-/-- Re-analysing a file yields the same set of mutants on every line: a second pass keeps
-    everything the first pass kept. -/
-theorem pick_stable_perm (rand : Nat → Nat) (h : RngOk rand) (k : Nat) (pool : List α)
-    (hk : (pick rand h k pool).length ≤ k) :
-    (pick rand h k (pick rand h k pool)).Perm (pick rand h k pool) :=
-  pick_all_perm rand h k _ hk
+/-- Re-analysing a file keeps the same mutants: the second pass draws from the list the first
+    pass produced, and a take of a take is the same take. -/
+theorem pick_stable (k : Nat) (pool : List α) : pick k (pick k pool) = pick k pool := by
+  unfold pick
+  rw [List.take_take]
+  simp
 
 /-! ## The candidate gate
 
 `Analyzer#candidate_parses?` refuses a candidate whose rewritten file does not re-parse, because
-every child would fail to load it. `select_per_line` draws from the group and skips a dead draw,
-continuing until it has `min per_line group.length` live candidates or the group is empty. That is
-the same set as drawing `min per_line` from the live candidates, so the pool the theorems above
-describe is the parseable subset of the line's group. -/
+every child would fail to load it. `select_per_line` walks the ordered candidates and skips a dead
+one, continuing until it has `min per_line group.length` live candidates or the group is empty.
+That is the same set as taking `min per_line` from the live candidates, so the pool the theorems
+above describe is the parseable subset of the line's group. -/
 
-/-- The candidates a line may draw from: the rewrites whose file re-parses. -/
+/-- The candidates a line may keep: the rewrites whose file re-parses. -/
 def parseable {α : Type u} (ok : α → Bool) (pool : List α) : List α := pool.filter ok
 
 theorem parseable_subset {α : Type u} (ok : α → Bool) (pool : List α) :
@@ -160,28 +81,25 @@ theorem parseable_eq_self {α : Type u} {ok : α → Bool} {pool : List α}
   simp only [parseable]
   exact List.filter_eq_self.mpr hall
 
-/-- A drawn candidate was in the line's group, gate or no gate. -/
-theorem pick_parseable_subset (rand : Nat → Nat) (h : RngOk rand) (k : Nat) (ok : α → Bool)
-    (pool : List α) {x : α} (hx : x ∈ pick rand h k (parseable ok pool)) : x ∈ pool :=
-  parseable_subset ok pool (pick_subset rand h k (parseable ok pool) hx)
+/-- A kept candidate was in the line's group, gate or no gate. -/
+theorem pick_parseable_subset (k : Nat) (ok : α → Bool) (pool : List α) {x : α}
+    (hx : x ∈ pick k (parseable ok pool)) : x ∈ pool :=
+  parseable_subset ok pool (pick_subset k (parseable ok pool) hx)
 
 /-- A line keeps `min per_line (parseable candidates)` mutants, never more. -/
-theorem pick_parseable_length (rand : Nat → Nat) (h : RngOk rand) (k : Nat) (ok : α → Bool)
-    (pool : List α) :
-    (pick rand h k (parseable ok pool)).length = min k (parseable ok pool).length :=
-  pick_length rand h k _
+theorem pick_parseable_length (k : Nat) (ok : α → Bool) (pool : List α) :
+    (pick k (parseable ok pool)).length = min k (parseable ok pool).length :=
+  pick_length k _
 
 /-- Re-analysing a file keeps the same mutants. The gate is a pure function of the file text, so
-    the second pass draws from the same live candidates and `pick_all_perm` applies again. -/
-theorem pick_stable_parseable (rand : Nat → Nat) (h : RngOk rand) (k : Nat) (ok : α → Bool)
-    (pool : List α) :
-    (pick rand h k (parseable ok (pick rand h k (parseable ok pool)))).Perm
-      (pick rand h k (parseable ok pool)) := by
-  have hlive : ∀ x ∈ pick rand h k (parseable ok pool), ok x = true := by
+    the second pass walks the same live candidates and `pick_all` applies again. -/
+theorem pick_stable_parseable (k : Nat) (ok : α → Bool) (pool : List α) :
+    pick k (parseable ok (pick k (parseable ok pool))) = pick k (parseable ok pool) := by
+  have hlive : ∀ x ∈ pick k (parseable ok pool), ok x = true := by
     intro x hx
-    have hmem : x ∈ parseable ok pool := pick_subset rand h k _ hx
+    have hmem : x ∈ parseable ok pool := pick_subset k _ hx
     simpa using (List.mem_filter.mp hmem).2
   rw [parseable_eq_self hlive]
-  exact pick_stable_perm rand h k _ (pick_le rand h k _)
+  exact pick_stable k _
 
 end Mutation.Selection

@@ -19,7 +19,7 @@ class FixtureMutantsTest < Minitest::Test
   end
 
   def mutants_for_fixture(built, operators: Mutation::Operator::Registry.ids, per_line: 100)
-    analyze(built, operators: operators, per_line: per_line, seed: 0)
+    analyze(built, operators: operators, per_line: per_line)
   end
 
   def test_pricing_default_selection_is_one_mutant_per_line

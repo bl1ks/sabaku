@@ -36,6 +36,16 @@ module Mutation
 
     def survivors = results.select(&:survived?)
 
+    # How many survivors a real test noticed (not_detected) and how many never changed
+    # a value the tests observe (not_infected). A survivor without a reason predates the
+    # classification, so it counts as not_detected.
+    def survivor_reasons
+      @survivor_reasons ||= results.select { |result| result.status == :survived }.group_by do |result|
+        reason = result.respond_to?(:reason) ? result.reason : nil
+        reason || :not_detected
+      end.transform_values(&:size)
+    end
+
     def per_file
       @per_file ||= results.group_by { |r| r.mutant.path }.sort.map do |path, list|
         counted = list.count(&:counted?)
@@ -72,6 +82,11 @@ module Mutation
         share = results.empty? ? 0.0 : count.fdiv(results.size) * 100
         out << format("  %-#{width}s  %5d  %5.1f%%%s\n", status, count, share, note_for(status))
       end
+      if counts[:survived].positive?
+        out << format("    not detected %d, not infected %d\n",
+                      survivor_reasons.fetch(:not_detected, 0),
+                      survivor_reasons.fetch(:not_infected, 0))
+      end
       out << format("\n  mutation score  %5.1f%%  (killed / killed+survived+timeout)\n",
                     score_pct)
       out << "\n"
@@ -94,7 +109,8 @@ module Mutation
       out = +"survivors:\n"
       survivors.first(50).each do |result|
         mutant = result.mutant
-        out << format("  %s:%d  %s\n", mutant.path, mutant.line, one_line(mutant))
+        tag = result.reason == :not_infected ? "  (not infected)" : ""
+        out << format("  %s:%d  %s%s\n", mutant.path, mutant.line, one_line(mutant), tag)
       end
       out << format("  ... and %d more\n", survivors.size - 50) if survivors.size > 50
       out << "\n"
@@ -175,7 +191,6 @@ module Mutation
         version: VERSION,
         adapter: config.adapter,
         isolation: config.isolation,
-        seed: config.seed,
         operators: config.operators,
         mutants: results.size,
         killed: counts[:killed],
@@ -188,6 +203,7 @@ module Mutation
         wall_ms: (results.sum(&:duration) * 1000).round,
         files: per_file,
         results: results.map(&:to_h),
+        survived_reasons: survivor_reasons.transform_keys(&:to_s),
         survivors: survivors.map do |result|
           mutant = result.mutant
           { path: mutant.path, line: mutant.line, column: mutant.column,

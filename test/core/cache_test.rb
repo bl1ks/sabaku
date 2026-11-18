@@ -30,6 +30,17 @@ class CacheTest < Minitest::Test
     assert_equal :killed, cache.fetch("key")[:status]
   end
 
+  def test_a_survivor_reason_round_trips
+    cache = Mutation::Cache.new(@path)
+    cache.store("key", status: :survived, reason: :not_infected)
+    cache.save!
+
+    reloaded = Mutation::Cache.new(@path)
+
+    assert_equal :survived, reloaded.fetch("key")[:status]
+    assert_equal :not_infected, reloaded.fetch("key")[:reason]
+  end
+
   def test_a_file_with_another_format_version_is_ignored
     write(Mutation::Cache::FORMAT_VERSION + 1, "key" => entry(:killed))
 

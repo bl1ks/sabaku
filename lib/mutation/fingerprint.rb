@@ -26,6 +26,7 @@ module Mutation
         "env=#{stable(config.env)}",
         "requires=#{stable(config.requires)}",
         "isolation=#{config.isolation}",
+        "weak=#{config.respond_to?(:weak) ? config.weak : false}",
         "timeout=#{format("%.6f", config.timeout)}"
       ]
       new(digest: Digest::SHA256.hexdigest(parts.join("\u0000")))

@@ -26,6 +26,11 @@
 ///   * `attribute_unmeasured` rewrites a boot-error result to `skipped`. It is also counted in
 ///     `rewrites`, and it is why `INV_skipped_has_no_child` became `INV_skip_from_boot_error`.
 ///
+/// The weak pass is `prepareWeak`: a covered mutant whose covering tests all saw the same value is
+/// terminal `survived` before a child exists. The model does not decide which mutants are
+/// probe-eligible; offering the decision for any new mutant over-approximates the schedules, and
+/// `INV_weak_has_no_child` is the promise it must keep.
+///
 /// The exit code policy (`error` above zero exits 2, `lib/mutation/cli.rb`) is not modelled here;
 /// `bin/check` covers the CLI.
 ///
@@ -42,7 +47,7 @@ module runner {
 
   pure val Mutants = 0.to(N - 1)
 
-  /// Fault switches. The honest model has all four false. `variants.sh` flips exactly one line
+  /// Fault switches. The honest model has all seven false. `variants.sh` flips exactly one line
   /// per variant, and the gate requires the named invariant to fail there, which is how each
   /// property is shown to be able to fail.
   pure val FAULT_double_complete = false
@@ -54,6 +59,8 @@ module runner {
   pure val FAULT_ignore_fail_fast = false
   /// A boot error promoted to a measured result without the first-load child.
   pure val FAULT_retry_without_child = false
+  /// A mutant the weak pass decided still started a child.
+  pure val FAULT_weak_child = false
 
   pure def faultOr(f: bool, guard: bool): bool = f or guard
 
@@ -73,6 +80,9 @@ module runner {
   /// Whether the mutant's measured child ran on the first-load surface (the retry) rather than
   /// in a fork of the preloaded parent.
   var firstLoad: int -> bool
+  /// Whether the weak pass decided the mutant: covered, and no selected test saw a change. It is
+  /// terminal without a child.
+  var weak: int -> bool
   /// Whether `--fail-fast` has stopped scheduling.
   var halted: bool
   /// Whether the report has been emitted.
@@ -102,6 +112,7 @@ module runner {
     childRan' = Map(0 -> false, 1 -> false, 2 -> false),
     bootFailed' = Map(0 -> false, 1 -> false, 2 -> false),
     firstLoad' = Map(0 -> false, 1 -> false, 2 -> false),
+    weak' = Map(0 -> false, 1 -> false, 2 -> false),
     halted' = false,
     reported' = false,
   }
@@ -120,6 +131,7 @@ module runner {
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
+      weak' = weak,
     }
   }
 
@@ -133,6 +145,28 @@ module runner {
       childRan' = childRan,
       bootFailed' = bootFailed,
       firstLoad' = firstLoad,
+      halted' = halted,
+      reported' = reported,
+      rewrites' = rewrites,
+      weak' = weak,
+    }
+  }
+
+
+  /// `prepare_entry` with the weak pass's answer: the covering tests all saw the same value, so
+  /// the mutant is `survived` before any child. The model does not decide which mutants are
+  /// probe-eligible; it offers the decision for any queued one.
+  action prepareWeak = {
+    nondet i = oneOf(Mutants)
+    all {
+      phase.get(i) == "new",
+      phase' = phase.set(i, "done"),
+      result' = result.set(i, "survived"),
+      writes' = writes.set(i, writes.get(i) + 1),
+      childRan' = childRan.set(i, faultOr(FAULT_weak_child, childRan.get(i))),
+      bootFailed' = bootFailed,
+      firstLoad' = firstLoad,
+      weak' = weak.set(i, true),
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
@@ -155,6 +189,7 @@ module runner {
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
+      weak' = weak,
     }
   }
 
@@ -173,6 +208,7 @@ module runner {
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
+      weak' = weak,
     }
   }
 
@@ -191,6 +227,7 @@ module runner {
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
+      weak' = weak,
     }
   }
 
@@ -209,6 +246,7 @@ module runner {
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
+      weak' = weak,
     }
   }
 
@@ -230,6 +268,7 @@ module runner {
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
+      weak' = weak,
     }
   }
 
@@ -251,6 +290,7 @@ module runner {
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
+      weak' = weak,
     }
   }
 
@@ -269,6 +309,7 @@ module runner {
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
+      weak' = weak,
     }
   }
 
@@ -286,6 +327,7 @@ module runner {
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
+      weak' = weak,
     }
   }
 
@@ -302,6 +344,7 @@ module runner {
     halted' = true,
     reported' = reported,
     rewrites' = rewrites,
+    weak' = weak,
   }
 
   /// `mark_skipped`: a mutant that was queued when the run halted is reported as skipped.
@@ -320,6 +363,7 @@ module runner {
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
+      weak' = weak,
     }
   }
 
@@ -340,6 +384,7 @@ module runner {
       firstLoad' = firstLoad,
       halted' = halted,
       reported' = reported,
+      weak' = weak,
     }
   }
 
@@ -360,6 +405,7 @@ module runner {
       halted' = halted,
       reported' = reported,
       rewrites' = rewrites,
+      weak' = weak,
     }
   }
 
@@ -375,11 +421,13 @@ module runner {
     halted' = halted,
     reported' = true,
     rewrites' = rewrites,
+    weak' = weak,
   }
 
   action step = any {
     prepareUncovered,
     prepareQueued,
+    prepareWeak,
     startChild,
     finishChild,
     abortChild,
@@ -439,6 +487,10 @@ module runner {
     Mutants.forall(i =>
       (bootFailed.get(i) and writes.get(i) == 1 and result.get(i) != "skipped")
         implies firstLoad.get(i))
+
+  /// The weak pass's survivor is decided from the dry run: no child ever runs for it.
+  val INV_weak_has_no_child =
+    Mutants.forall(i => weak.get(i) implies not(childRan.get(i)))
 
   /// A skipped mutant that never started was left in the queue by `--fail-fast`, so a survivor
   /// stopped the run. Attribution mutants ran and are covered by the invariant above.

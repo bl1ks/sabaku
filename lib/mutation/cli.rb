@@ -70,16 +70,19 @@ module Mutation
       end
 
       adapter = start_adapter(cfg)
-      coverage_map = collect_coverage(cfg, adapter, sources, mutants)
-      if coverage_map.nil?
+      coverage = collect_coverage(cfg, adapter, sources, mutants)
+      if coverage.nil?
         # Selection failed. Running every test for every mutant is slow but correct;
         # an empty map would instead mark every mutant uncovered and score the run 0.
         @err.puts("mutation: continuing without coverage-based selection")
         cfg = cfg.with(coverage: false)
         coverage_map = CoverageMap.empty
+        weak = nil
+      else
+        coverage_map, weak = coverage
       end
       results = Runner.new(cfg, analyzer: analyzer, adapter: adapter,
-                                coverage_map: coverage_map).call(mutants)
+                                coverage_map: coverage_map, weak: weak).call(mutants)
 
       report = Report.new(results, cfg)
       emit(report, cfg)
@@ -152,7 +155,6 @@ module Mutation
         o.on("--adapter=NAME", "minitest or rspec") { |v| options[:adapter] = v.to_sym }
         o.on("--jobs=N", Integer, "mutants in flight at once") { |v| options[:jobs] = v }
         o.on("--timeout=SEC", Float, "per-mutant deadline") { |v| options[:timeout] = v }
-        o.on("--seed=N", Integer, "operator choice seed") { |v| options[:seed] = v }
         o.on("--operators=LIST", "comma separated operator ids") do |v|
           options[:operators] = v.split(",").map(&:strip).reject(&:empty?).map(&:to_sym)
         end
@@ -181,6 +183,7 @@ module Mutation
           options[:setup_path] = v
         end
         o.on("--[no-]coverage", "select tests by line coverage") { |v| options[:coverage] = v }
+        o.on("--[no-]weak", "skip the dry-run probes that decide uninfected survivors") { |v| options[:weak] = v }
         o.on("--isolation=MODE", "fork or process") { |v| options[:isolation] = v.to_sym }
         o.on("--report=FORMAT", "terminal, json, quiet") { |v| options[:report] = v.to_sym }
         o.on("--output=PATH", "write the JSON report here") { |v| options[:output] = v }
@@ -214,8 +217,8 @@ module Mutation
         changed = Diff.git_ranges(revision)
         overrides[:diff_ranges] = Diff.intersect(overrides[:diff_ranges], changed)
       end
-      keys = %i[paths exclude operators adapter jobs timeout seed per_line diff_ranges
-                coverage isolation report output env requires setup setup_path fail_fast baseline]
+      keys = %i[paths exclude operators adapter jobs timeout per_line diff_ranges
+                coverage isolation report output env requires setup setup_path fail_fast baseline weak]
       Config.default(**overrides.slice(*keys))
     end
 
@@ -246,12 +249,14 @@ module Mutation
             "Add #{cfg.adapter == :minitest ? "minitest" : "rspec"} to your bundle."
     end
 
-    # nil means "selection is unavailable", which the caller turns into --no-coverage.
+    # -> [CoverageMap, Weak::Report | nil], or nil when selection is unavailable and the
+    # caller turns it into --no-coverage.
     def collect_coverage(cfg, adapter, sources, mutants = nil)
-      return CoverageMap.empty unless cfg.coverage
-      return CoverageMap.empty unless defined?(Adapters::CoverageSampler)
+      return [CoverageMap.empty, nil] unless cfg.coverage
+      return [CoverageMap.empty, nil] unless defined?(Adapters::CoverageSampler)
 
-      Adapters::CoverageSampler.new(cfg, adapter, sources, mutants: mutants).call
+      sampler = Adapters::CoverageSampler.new(cfg, adapter, sources, mutants: mutants)
+      [sampler.call, sampler.weak_report]
     rescue BaselineError, BootError
       # Not a coverage problem: the project has to fix its suite or its setup.
       # Falling back to running every test would score failing tests as kills,
@@ -298,6 +303,7 @@ module Mutation
           --since=REV                only mutate lines changed since a git revision
           --fail-fast                stop at the first surviving mutant
           --[no-]baseline            refuse to score a suite that is already red (default on)
+          --[no-]weak                dry-run probes that decide uninfected survivors
           --env=KEY=VALUE            ENV set before the suite loads (repeatable)
           --require=PATH             require after coverage starts, before the tests
           --setup=PATH               Ruby file with boot hooks for Rails and friends

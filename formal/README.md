@@ -10,9 +10,9 @@ versions: Lean 4.36.0, Quint 0.33.1, Apalache 0.62.4.
 
 | Question | Tool | Answer |
 | --- | --- | --- |
-| Does the algebra hold for every input? | Lean 4 | Proof. 74 theorems, no axioms, no `sorry`. |
+| Does the algebra hold for every input? | Lean 4 | Proof. 88 theorems, no axioms, no `sorry`. |
 | Can the pool lose, double count, or mis-order a result on some schedule? | Quint + Apalache | No violation for every interleaving up to a step bound. |
-| Does the running code agree with the model? | Replay | Lean and Ruby independently compute 54 splices and 36 scores; 0 mismatches. |
+| Does the running code agree with the model? | Replay | Lean and Ruby independently compute 88 splices and 36 scores; 0 mismatches. |
 
 Lean owns the pure part: offsets, operators, aridity, selection, score, cache. Quint owns the
 concurrent part: the pool in `lib/mutation/runner.rb`. The replay is the bridge: it feeds real
@@ -47,7 +47,7 @@ Each row names the property in plain words and the code it mirrors.
 | Operators | Every operator image excludes the original, so no mutant is a no-op. | `aor.rb`, `ror.rb`, `lcr.rb`, `sbr.rb`, `uoi.rb`, `bool.rb`, `str.rb`, `literal.rb`, `cond.rb`, `assign.rb`, `return.rb`, `control.rb` |
 | Operators | A rewrite that reproduces its own input is dropped before it becomes a mutant. | `Analyzer#walk` (`next if replacement.replacement == actual`) |
 | Operators | The image is complete: every other token appears. | `OPERATORS - [token]` |
-| Operators | Relational and connector tokens are disjoint, so two operators cannot emit `true` at one span. | `Mutant#initialize` (the id omits the operator) |
+| Operators | Relational and connector tokens are disjoint, so two operators cannot emit `true` at one span. | `Mutant#initialize` (the id includes the operator) |
 | Operators | `SBR` never removes the last statement of a def body and never removes anything from a declaration container. | `Sbr.removable_indices` |
 | Aridity | The recursive rule has exactly one solution at each depth. | `Aridity#arid?` |
 | Aridity | The verdict does not depend on the order of the ancestor stack. | `ancestors + [node]` and `reverse_each` |
@@ -89,6 +89,7 @@ Checked invariants:
 - `INV_rewrite_at_most_once`: a reported result is rewritten at most once, by the kill check.
 - `INV_retry_measured_once`: a boot error becomes a measured result only through a child on the
   first-load surface.
+- `INV_weak_has_no_child`: a mutant the weak pass decided never starts a child.
 
 Two checks sit around the pool and are modelled only where they can change a result. The baseline
 runs before any mutant exists, so it either lets the campaign start or ends it with no result at
@@ -118,7 +119,7 @@ each one in Lean; `formal/replay/check.rb` checks the real mutant list against t
 contract:
 
 - the list is sorted by `(path, start, operator, replacement)`;
-- no id repeats and every id recomputes from `(path, start, end, replacement)`;
+- no id repeats and every id recomputes from `(path, scope, AST path, operator, replacement)`;
 - at most `per_line` mutants share a line;
 - every reported line lies inside its node's span;
 - every replacement differs from the bytes it replaces;
@@ -138,12 +139,13 @@ contract:
   behaviour is covered by the e2e tests, not here.
 - Prism's parse tree is trusted. The aridity *expert table* is an uninterpreted `base` predicate;
   the recursive rule is what is proven.
-- The selection model fixes only the RNG contract `rand n < n`, not Mersenne Twister. The
-  specific draw of a run is covered by the deterministic replay, not proven.
+- The selection model is the deterministic take of the first `per_line` parseable candidates, so
+  the specific ranking (`Registry.rank`, offsets, names) is modelled by its result, not proven
+  element by element. The replay checks the real analyzer's order.
 - `Array#sort_by` is not stable. The order is proven canonical only for distinct keys, and the
   replay checks that the corpus has no ties.
 - SHA1 truncated to 64 bits can collide. The proof shows the id is a function of
-  `(path, start, end, replacement)`; collision resistance is an assumption.
+  `(path, scope, AST path, operator, replacement)`; collision resistance is an assumption.
 - `LoadHazard` decides which files get a kill check. It is a screen over the parse tree, not a
   proof: a file that runs no unknown code at load time is assumed to be unobservable when loaded
   twice, and a construct the screen does not recognize would leave its kills unverified. The probe

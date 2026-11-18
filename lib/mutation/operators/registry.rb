@@ -28,7 +28,16 @@ module Mutation
       # --per-line controls, so the candidate pool should be the whole table.
       DEFAULTS = OPERATORS.map(&:id).freeze
 
+      # The order a line spends its per-line budget in. Relational and conditional
+      # replacements survive most often, literals and structural rewrites least, and a
+      # fixed order means two runs on the same code keep the same mutant.
+      PRODUCTIVITY = %i[ror lcr aor cond uoi bool literal str sbr selector call assign return control].freeze
+
       module_function
+
+      def rank(id)
+        PRODUCTIVITY.index(id.to_sym) || PRODUCTIVITY.length
+      end
 
       def all
         OPERATORS

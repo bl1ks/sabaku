@@ -14,7 +14,8 @@ class MutantTest < Minitest::Test
   end
 
   def mutant(replacement: "a - b", start_offset: @node.location.start_offset,
-             end_offset: @node.location.end_offset, path: "lib/pricing.rb", id: nil)
+             end_offset: @node.location.end_offset, path: "lib/pricing.rb", id: nil,
+             scope: "top", ast_path: "1/1")
     Mutation::Mutant.new(
       id: id,
       path: path,
@@ -25,11 +26,13 @@ class MutantTest < Minitest::Test
       original: "a + b",
       replacement: replacement,
       start_offset: start_offset,
-      end_offset: end_offset
+      end_offset: end_offset,
+      scope: scope,
+      ast_path: ast_path
     )
   end
 
-  def test_id_is_stable_and_depends_on_path_offsets_and_replacement
+  def test_id_is_stable_and_position_independent
     first = mutant
     second = mutant
 
@@ -37,7 +40,10 @@ class MutantTest < Minitest::Test
     assert_equal first.id, second.id
     refute_equal first.id, mutant(replacement: "a * b").id
     refute_equal first.id, mutant(path: "lib/other.rb").id
-    refute_equal first.id, mutant(start_offset: 0, end_offset: 3).id
+    assert_equal first.id, mutant(start_offset: 0, end_offset: 3).id,
+                 "a move alone must not invalidate the cache entry"
+    refute_equal first.id, mutant(scope: "Pricing#total").id
+    refute_equal first.id, mutant(ast_path: "0/1").id
   end
 
   def test_explicit_id_is_kept

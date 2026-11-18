@@ -3,6 +3,7 @@
 require_relative "../boot"
 require_relative "../coverage_map"
 require_relative "../source"
+require_relative "../weak"
 
 module Mutation
   module Adapters
@@ -20,11 +21,17 @@ module Mutation
     #     repo-relative path so `CoverageMap#tests_for(mutant.path, ...)` lines
     #     up with `Mutant#path`.
     class CoverageSampler
+      # What the probe pass learned, or nil when probes were off or none could run.
+      attr_reader :weak_report, :probe_failures
+
       def initialize(config, adapter, sources, mutants: nil)
         @config = config
         @adapter = adapter
         @sources = Array(sources)
         @mutants = mutants.nil? ? nil : Array(mutants)
+        @weak_enabled = !config.respond_to?(:weak) || config.weak
+        @weak_report = nil
+        @probe_failures = []
       end
 
       # -> CoverageMap
@@ -76,12 +83,63 @@ module Mutation
         end
 
         verify_baseline!(failures)
+        @weak_report = collect_weak(targets)
         map
       ensure
+        Weak.test_id = nil
         ::Coverage.result if started_here && ::Coverage.running?
       end
 
       private
+
+      # The weak pass runs after the coverage pass, because code compiled by `eval` is
+      # not instrumented: doing both in one pass would erase the probed files' line
+      # counts. The price is one extra run of the selected suites, paid only when there
+      # are mutants a probe can decide.
+      def collect_weak(targets)
+        return nil unless @weak_enabled && @mutants
+
+        eligible = Weak.eligible(@mutants)
+        return nil if eligible.empty?
+
+        Weak.reset!
+        install_probes!(targets, eligible)
+        @adapter.test_ids.each do |test_id|
+          Weak.test_id = test_id
+          begin
+            @adapter.run([test_id])
+          rescue StandardError
+            nil
+          end
+        end
+        Weak.report
+      ensure
+        Weak.test_id = nil
+      end
+
+      # Methods are redefined in place, so a test that calls them afterwards runs the
+      # probe; the probe returns the original value, so this pass only measures.
+      def install_probes!(targets, eligible)
+        by_path = eligible.group_by(&:path)
+        root = (@adapter.respond_to?(:root) && @adapter.root) || Dir.pwd
+        sources = @sources.to_h { |source| [source.rel_path, source] }
+        by_path.each do |path, mutants|
+          source = sources[path]
+          next if source.nil?
+
+          absolute = File.expand_path(path, root)
+          next unless File.file?(absolute) && loaded_feature?(absolute)
+
+          instrumented = Weak.instrument(source, mutants)
+          next if instrumented.nil?
+
+          begin
+            quietly { TOPLEVEL_BINDING.eval(instrumented.first, absolute, 1) }
+          rescue StandardError, ScriptError => e
+            @probe_failures << "#{path} (#{e.class}: #{e.message})"
+          end
+        end
+      end
 
       # The neutral mutation, without a second suite run: the coverage pass has
       # already executed every test once. A test that fails with no mutation

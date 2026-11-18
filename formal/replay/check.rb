@@ -3,8 +3,9 @@
 # Contract checks on the mutant list `formal/replay/emit.rb` produced.
 #
 # The proofs in formal/lean say what a correct list looks like: a stable order, one id per
-# (path, offsets, replacement), at most `per_line` mutants per line, and a replacement that
-# differs from the bytes it replaces. This script checks the real analyzer's output against them.
+# (path, scope, AST path, operator, replacement), at most `per_line` mutants per line, and a
+# replacement that differs from the bytes it replaces. This script checks the real analyzer's
+# output against them.
 
 require "digest"
 
@@ -25,10 +26,10 @@ File.foreach(path, chomp: true) do |line|
   when "source"
     texts[fields[1]] = bytes(fields[2])
   when "mutant"
-    _, file, number, column, operator, kind, start, stop, id, replacement = fields
+    _, file, number, column, operator, kind, start, stop, scope, ast_path, id, replacement = fields
     mutants << { path: file, line: number.to_i, column: column.to_i, operator: operator.to_sym,
-                 kind: kind, start: start.to_i, stop: stop.to_i, id: id,
-                 replacement: bytes(replacement) }
+                 kind: kind, start: start.to_i, stop: stop.to_i, scope: scope,
+                 ast_path: ast_path, id: id, replacement: bytes(replacement) }
   end
 end
 
@@ -60,7 +61,8 @@ mutants.each do |mutant|
   end
 
   expected = Digest::SHA1.hexdigest(
-    "#{mutant[:path]}\0#{mutant[:start]}\0#{mutant[:stop]}\0#{mutant[:replacement]}"
+    "#{mutant[:path]}\0#{mutant[:scope]}\0#{mutant[:ast_path]}\0#{mutant[:operator]}\0" \
+    "#{mutant[:replacement]}"
   )[0, 16]
   failures << "#{mutant[:id]}: id does not match its fields (expected #{expected})" if expected != mutant[:id]
 end

@@ -93,6 +93,19 @@ class ReportTest < Minitest::Test
     assert_equal "1 - 2", survivor["replacement"]
   end
 
+  def test_survivors_are_split_by_why_they_survived
+    results = [
+      result(:survived, line: 1),
+      Mutation::Result.new(mutant: mutant(line: 2), status: :survived, reason: :not_infected)
+    ]
+    doc = report(results)
+
+    assert_includes doc.status_lines, "not detected 1, not infected 1"
+    assert_includes doc.to_terminal, "(not infected)"
+    payload = JSON.parse(doc.to_json)
+    assert_equal({ "not_detected" => 1, "not_infected" => 1 }, payload["survived_reasons"])
+  end
+
   def test_per_file_groups_and_rates
     results = [result(:killed, path: "lib/a.rb"), result(:survived, path: "lib/a.rb"),
                result(:killed, path: "lib/b.rb")]

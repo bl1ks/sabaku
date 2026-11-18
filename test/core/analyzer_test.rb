@@ -9,28 +9,56 @@ class AnalyzerTest < Minitest::Test
   def test_two_runs_produce_identical_mutant_ids
     built = source("total = a + b\nif total >= 10\n  ship\nend\n")
 
-    first = analyze(built, seed: 7, per_line: 1)
-    second = analyze(built, seed: 7, per_line: 1)
+    first = analyze(built, per_line: 1)
+    second = analyze(built, per_line: 1)
 
     refute_empty first
     assert_equal first.map(&:id), second.map(&:id)
     assert_equal first.map(&:replacement), second.map(&:replacement)
   end
 
-  def test_a_different_seed_changes_the_per_line_pick
-    built = source("a + b + c\n")
+  def test_per_line_spends_its_budget_on_the_most_productive_operator
+    built = source("a + b\n")
+    aor = fake_mutant(built, operator: :aor, replacement: "a - b")
+    lcr = fake_mutant(built, operator: :lcr, replacement: "a || b")
+    analyzer = Mutation::Analyzer.new([built], Mutation::Config.default(per_line: 1))
 
-    zero = analyze(built, seed: 0, per_line: 1)
-    one = analyze(built, seed: 2, per_line: 1)
+    assert_equal [:lcr], analyzer.send(:select_per_line, built, [aor, lcr]).map(&:operator)
 
-    assert_equal 1, zero.size
-    assert_equal 1, one.size
-    refute_equal zero.first.id, one.first.id
+    two = Mutation::Analyzer.new([built], Mutation::Config.default(per_line: 2))
+    assert_equal %i[lcr aor].sort,
+                 two.send(:select_per_line, built, [aor, lcr]).map(&:operator).sort
+  end
+
+  def test_moving_a_method_keeps_its_mutant_ids
+    before = source("def price(a, b)\n  a + b\nend\n", "lib/pricing.rb")
+    after = source("# a new comment\n\ndef price(a, b)\n  a + b\nend\n", "lib/pricing.rb")
+
+    assert_equal analyze(before, per_line: 99).map(&:id).sort,
+                 analyze(after, per_line: 99).map(&:id).sort
+  end
+
+  def test_reopening_a_class_and_redefining_a_method_keeps_ids_distinct
+    built = source("class A\n  def value(a, b)\n    a + b\n  end\nend\n\n" \
+                   "class A\n  def value(a, b)\n    a + b\n  end\nend\n")
+    ids = analyze(built, per_line: 99).select { |m| m.operator == :aor }.map(&:id)
+
+    refute_empty ids
+    assert_equal ids.uniq.size, ids.size
+  end
+
+  def test_the_same_body_in_two_scopes_is_two_mutants
+    built = source("class A\n  def value(a, b)\n    a + b\n  end\nend\n\n" \
+                   "class B\n  def value(a, b)\n    a + b\n  end\nend\n")
+    ids = analyze(built, per_line: 99).select { |m| m.operator == :aor }.map(&:id)
+
+    refute_empty ids
+    assert_equal ids.uniq.size, ids.size
   end
 
   def test_each_is_lazy_and_matches_mutants
     built = source("a + b\nc * d\n")
-    analyzer = Mutation::Analyzer.new([built], Mutation::Config.default(seed: 0))
+    analyzer = Mutation::Analyzer.new([built], Mutation::Config.default)
 
     assert_instance_of Enumerator, analyzer.each
     assert_equal analyzer.mutants, analyzer.each.to_a
@@ -40,7 +68,7 @@ class AnalyzerTest < Minitest::Test
   def test_mutants_are_ordered_by_path_offset_and_operator
     later = source("a + b\n", "zeta.rb")
     earlier = source("c * d\ne - f\n", "alpha.rb")
-    mutants = analyze([later, earlier], per_line: 99, seed: 0)
+    mutants = analyze([later, earlier], per_line: 99)
 
     assert_equal %w[alpha.rb zeta.rb], mutants.map(&:path).uniq,
                  "mutants are grouped by path"
@@ -91,7 +119,7 @@ class AnalyzerTest < Minitest::Test
     assert_equal 1, analyze(built, per_line: 1).size
     assert_equal 2, analyze(built, per_line: 2).size
     assert_operator analyze(built, per_line: 99).size, :>=, 8
-    assert_equal 2, analyze(built, per_line: 2, seed: 123).size
+    assert_equal 2, analyze(built, per_line: 2).size
   end
 
   def test_arid_nodes_are_not_mutated
@@ -158,9 +186,9 @@ class AnalyzerTest < Minitest::Test
     assert_empty analyzer.send(:select_per_line, built, [broken])
   end
 
-  def fake_mutant(built, replacement:, end_offset:)
+  def fake_mutant(built, replacement:, end_offset: 5, operator: :aor)
     Mutation::Mutant.new(
-      path: built.rel_path, operator: :aor, line: 1, column: 0, node_kind: "CallNode",
+      path: built.rel_path, operator: operator, line: 1, column: 0, node_kind: "CallNode",
       original: "a + b", replacement: replacement, start_offset: 0, end_offset: end_offset
     )
   end

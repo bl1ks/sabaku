@@ -57,11 +57,12 @@ module Mutation
     Control = Struct.new(:key, :index, :ids, :reload, :path, :text, :first_load, :grace,
                          keyword_init: true)
 
-    def initialize(config, analyzer: nil, adapter:, coverage_map: nil)
+    def initialize(config, analyzer: nil, adapter:, coverage_map: nil, weak: nil)
       @config = config
       @analyzer = analyzer
       @adapter = adapter
       @coverage_map = coverage_map || CoverageMap.empty
+      @weak = weak
       @jobs = [Integer(config.respond_to?(:jobs) ? (config.jobs || 1) : 1), 1].max
       @timeout = Float(config.respond_to?(:timeout) ? (config.timeout || 5.0) : 5.0)
       @isolation = (config.respond_to?(:isolation) ? config.isolation : :fork).to_sym
@@ -128,7 +129,27 @@ module Mutation
             status: hit[:status],
             duration: 0.0,
             failed_test: hit[:failed_test],
-            message: hit[:message]
+            message: hit[:message],
+            reason: hit[:reason]
+          )
+        )
+      end
+
+      # A mutant whose covering tests all evaluated the expression and never saw a
+      # different value cannot be killed. The dry run already paid for that answer, so
+      # no child is spent repeating it.
+      if @weak && @weak.decision(mutant, selected) == :not_infected
+        return Entry.new(
+          index: index,
+          mutant: mutant,
+          selected_ids: selected,
+          cache_key: key,
+          result: Result.new(
+            mutant: mutant,
+            status: :survived,
+            duration: 0.0,
+            reason: :not_infected,
+            message: "not infected: every covering test saw the same value"
           )
         )
       end
@@ -545,7 +566,8 @@ module Mutation
         return deferred_unmeasured(entry, payload, duration)
       end
       if payload["ok"] && exit_status == 0
-        return Result.new(mutant: entry.mutant, status: :survived, duration: duration)
+        return Result.new(mutant: entry.mutant, status: :survived, duration: duration,
+                          reason: :not_detected)
       end
       if !payload["ok"] && (exit_status == 1 || exit_status.nil?)
         return Result.new(mutant: entry.mutant, status: :killed, duration: duration,
@@ -882,7 +904,8 @@ module Mutation
         @cache.store(entry.cache_key,
                      status: entry.result.status,
                      failed_test: entry.result.failed_test,
-                     message: entry.result.message)
+                     message: entry.result.message,
+                     reason: entry.result.reason)
       end
       @cache.save!
     end

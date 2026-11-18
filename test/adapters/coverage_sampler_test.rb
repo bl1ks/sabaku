@@ -59,6 +59,35 @@ class CoverageSamplerTest < Minitest::Test
     end
   end
 
+  # The weak pass runs after the coverage pass, so both answers come from one call.
+  def test_the_weak_pass_answers_covered_mutants
+    in_project("minitest_calc") do
+      source = Mutation::Source.new("lib/pricing.rb", File.read("lib/pricing.rb"))
+      config = config_for
+      mutants = Mutation::Analyzer.new([source], config).mutants
+      sampler = Mutation::Adapters::CoverageSampler.new(
+        config, Mutation::Adapter.for(:minitest, config), [source], mutants: mutants
+      )
+      map = sampler.call
+      weak = sampler.weak_report
+
+      refute_nil weak
+      assert_empty sampler.probe_failures
+      answered = mutants.each_with_object([]) do |mutant, out|
+        next unless mutant.weak
+
+        selected = map.tests_for_span(mutant.path, mutant.line,
+                                      source.line_of(mutant.end_offset - 1))
+        next if selected.empty?
+
+        out << weak.decision(mutant, selected)
+      end
+      refute_empty answered
+      assert(answered.any? { |verdict| verdict != :unknown },
+             "the probe should decide at least one covered mutant: #{answered.inspect}")
+    end
+  end
+
   def test_rspec_examples_are_recorded_by_native_id
     in_project("rspec_inventory") do
       source = Mutation::Source.new("lib/inventory.rb", File.read("lib/inventory.rb"))

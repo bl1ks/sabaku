@@ -24,7 +24,6 @@ SOURCES = [
 CONFIG = Mutation::Config.default(
   paths: SOURCES,
   operators: Mutation::Operator::Registry.ids,
-  seed: 0,
   per_line: 2
 )
 
@@ -79,8 +78,8 @@ File.open(File.join(OUT, "mutants.tsv"), "w") do |out|
   end
   mutants.each do |mutant|
     out.puts ["mutant", mutant.path, mutant.line, mutant.column, mutant.operator,
-              mutant.node_kind, mutant.start_offset, mutant.end_offset, mutant.id,
-              bytes(mutant.replacement)].join("\t")
+              mutant.node_kind, mutant.start_offset, mutant.end_offset, mutant.scope,
+              mutant.ast_path, mutant.id, bytes(mutant.replacement)].join("\t")
   end
 end
 

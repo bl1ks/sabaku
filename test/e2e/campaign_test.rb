@@ -118,11 +118,11 @@ class CampaignTest < Minitest::Test
     assert_equal 1, code
   end
 
-  def test_seed_changes_the_per_line_pick_but_not_the_count
-    a = campaign("minitest_calc", "lib", "--adapter=minitest", "--seed=1", "--jobs=2")
-    b = campaign("minitest_calc", "lib", "--adapter=minitest", "--seed=2", "--jobs=2")
+  def test_the_same_code_runs_the_same_mutants
+    a = campaign("minitest_calc", "lib", "--adapter=minitest", "--jobs=2")
+    b = campaign("minitest_calc", "lib", "--adapter=minitest", "--jobs=2")
     assert_equal a["mutants"], b["mutants"]
-    refute_equal a["survivors"].map { |s| [s["line"], s["replacement"]] },
+    assert_equal a["survivors"].map { |s| [s["line"], s["replacement"]] },
                  b["survivors"].map { |s| [s["line"], s["replacement"]] }
   end
 
