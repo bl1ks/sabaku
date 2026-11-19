@@ -6,7 +6,7 @@ Gem::Specification.new do |spec|
   spec.name = "ruby-mutation"
   spec.version = Mutation::VERSION
   spec.authors = ["kyusu"]
-  spec.summary = "Mutation testing for minitest and rspec, diff-based and coverage-guided"
+  spec.summary = "Mutation testing for minitest, diff-based and coverage-guided"
   spec.description = <<~DESC
     Mutates individual AST nodes of your Ruby source, then runs only the tests that cover the
     mutated line. Follows the diff-based, arid-node-suppressed approach described in
@@ -23,5 +23,4 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_development_dependency "minitest", ">= 5.19"
-  spec.add_development_dependency "rspec", "~> 3.13"
 end

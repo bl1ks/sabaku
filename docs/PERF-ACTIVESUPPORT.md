@@ -102,7 +102,7 @@ EOF
 
 # 3. mutation を実行 (cwd は activesupport)
 #    RUBYOPT には minitest-mock の有効化と、mutant 用の先行 require を置く
-mutation run lib/active_support.rb lib/active_support --adapter=minitest --per-line=all \
+mutation run lib/active_support.rb lib/active_support --per-line=all \
   --exclude='lib/active_support/core_ext/**/*.rb' \
   --exclude='lib/active_support/backtrace_cleaner.rb' \
   --no-baseline --jobs=8 --timeout=1 --report=json --output=/tmp/rm.json

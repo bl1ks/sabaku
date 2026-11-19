@@ -30,9 +30,9 @@ class RunnerAttributionTest < Minitest::Test
       ]
       map = Mutation::CoverageMap.empty
       map.record(test_id, { path => map_lines })
-      config = config_for(paths: ["lib"], adapter: :minitest, isolation: :fork,
+      config = config_for(paths: ["lib"], isolation: :fork,
                           output: File.join(@tmpdir, "report.json"))
-      adapter = Mutation::Adapter.for(:minitest, config)
+      adapter = Mutation::Adapters::MinitestAdapter.new
       Mutation::Runner.new(config, analyzer: nil, adapter: adapter, coverage_map: map).call(mutants)
     end
   end
@@ -136,9 +136,9 @@ class RunnerAttributionTest < Minitest::Test
       map.record("CalcTest#test_add", { "lib/calc.rb" => [4, 5, 6] })
       setup = Mutation::Setup.new
       setup.before_test_run { raise "harness blew up" }
-      config = config_for(paths: ["lib"], adapter: :minitest, isolation: :fork, setup: setup,
+      config = config_for(paths: ["lib"], isolation: :fork, setup: setup,
                           output: File.join(@tmpdir, "report.json"))
-      adapter = Mutation::Adapter.for(:minitest, config)
+      adapter = Mutation::Adapters::MinitestAdapter.new
       result = Mutation::Runner.new(config, analyzer: nil, adapter: adapter,
                                     coverage_map: map).call(mutants).first
 

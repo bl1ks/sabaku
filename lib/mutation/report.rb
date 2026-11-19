@@ -68,8 +68,8 @@ module Mutation
 
     def header
       files = results.map { |r| r.mutant.path }.uniq.size
-      format("ruby-mutation %s  adapter=%s  files=%d  mutants=%d  jobs=%d\n\n",
-             VERSION, config.adapter, files, results.size, config.jobs)
+      format("ruby-mutation %s  files=%d  mutants=%d  jobs=%d\n\n",
+             VERSION, files, results.size, config.jobs)
     end
 
     def status_lines
@@ -189,7 +189,6 @@ module Mutation
     def to_h
       {
         version: VERSION,
-        adapter: config.adapter,
         isolation: config.isolation,
         operators: config.operators,
         mutants: results.size,

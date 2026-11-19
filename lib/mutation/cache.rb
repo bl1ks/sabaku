@@ -13,7 +13,6 @@ module Mutation
   #
   #   * the mutant id (which pins path/scope/ast path/operator/replacement)
   #   * sha256 of the full mutated source that would be loaded
-  #   * adapter name
   #   * Ruby version
   #   * the selected test ids
   #   * a campaign fingerprint over the test tree, the setup file, ENV,

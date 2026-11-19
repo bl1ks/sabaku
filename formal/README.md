@@ -135,8 +135,8 @@ contract:
 
 - The Ruby runtime is modelled, not proven. `fork`, `IO.select`, `SIGKILL`, `waitpid2`, pipe
   buffering, and `Process.spawn` are trusted.
-- The adapters (`minitest.rb`, `rspec.rb`, `coverage_sampler.rb`) are trusted. Their framework
-  behaviour is covered by the e2e tests, not here.
+- The adapter (`minitest.rb`) and `coverage_sampler.rb` are trusted. Their framework behaviour is
+  covered by the e2e tests, not here.
 - Prism's parse tree is trusted. The aridity *expert table* is an uninterpreted `base` predicate;
   the recursive rule is what is proven.
 - The selection model is the deterministic take of the first `per_line` parseable candidates, so

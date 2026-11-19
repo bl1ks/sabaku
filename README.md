@@ -1,6 +1,6 @@
 # ruby-mutation
 
-Mutation testing for Ruby test suites. It rewrites one AST node of your source at a time, runs
+Mutation testing for minitest suites. It rewrites one AST node of your source at a time, runs
 **only the tests that cover that line**, and reports the mutants your suite failed to notice.
 
 The engine borrows the shape of Google's mutation service (Petrovic & Ivankovic, *"State of
@@ -23,19 +23,16 @@ gem "ruby-mutation", require: false
 ```
 
 Requires Ruby 3.2 or newer. Prism (the parser) ships with Ruby from 3.3. Verified against
-minitest 5.25 and 6.1, and rspec 3.13, on Ruby 3.4.12.
+minitest 5.25 and 6.1 on Ruby 3.4.12.
 
 ## Run
 
 ```sh
 # from your project root: minitest suite in test/, sources in lib/
-mutation run --adapter=minitest
-
-# rspec suite in spec/
-mutation run --adapter=rspec
+mutation run
 
 # only mutate the lines in a diff
-mutation run --diff=changed_lines.json --adapter=minitest
+mutation run --diff=changed_lines.json
 
 # what would run, without running it
 mutation list
@@ -45,7 +42,7 @@ mutation doctor
 ```
 
 ```
-ruby-mutation 0.1.0  adapter=minitest  files=1  mutants=11  jobs=1
+ruby-mutation 0.1.0  files=1  mutants=11  jobs=1
 
   killed         8   72.7%
   survived       2   18.2%  <- your tests did not notice these
@@ -68,7 +65,7 @@ either surface) is reported as `skipped` with the reason, stays out of the score
 fail the run:
 
 ```sh
-mutation run --adapter=rspec --min-score=70 --report=json --output=mutation.json
+mutation run --min-score=70 --report=json --output=mutation.json
 ```
 
 The reported score is printed at one decimal and `--min-score` compares that same value, so the
@@ -81,7 +78,6 @@ tier has no test at all: the suite only exercises the ten-item tier.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--adapter=minitest\|rspec` | `minitest` | which suite to drive |
 | `--jobs=N` | `1` | mutants in flight at once |
 | `--timeout=SEC` | `5` | per-mutant deadline |
 | `--operators=aor,ror,...` | all | restrict mutation operators |
@@ -102,8 +98,8 @@ tier has no test at all: the suite only exercises the ten-item tier.
 | `--exclude=GLOB` | none | skip files |
 | `--limit=N` | none | cap the mutant count |
 
-Run it from the project root. `lib`, `test` and `spec` are put on `$LOAD_PATH`, and test files
-are discovered with `test/**/*_test.rb` or `spec/**/*_spec.rb`. Set `RUBY_MUTATION_TEST_GLOB`
+Run it from the project root. `lib` and `test` are put on `$LOAD_PATH`, and test files
+are discovered with `test/**/*_test.rb`. Set `RUBY_MUTATION_TEST_GLOB`
 to override the pattern. Set `RUBY_MUTATION_NO_CACHE=1` to ignore the result cache.
 
 A mutant id is `sha1(path, scope, AST path, operator, replacement)`, so moving a method down a
@@ -225,8 +221,6 @@ These are real and deliberate; know them before trusting a score.
 - **Weak probes only decide pure expressions.** Arithmetic, relational and logical nodes over
   literals, locals, ivars, `self` and constants. A method call anywhere in the expression keeps
   its mutant on the real-run path, so a missing `not_infected` label is not a correctness bug.
-- **`before(:suite)` / `after(:suite)` hooks do not run for a selected subset**, and rspec
-  filters (`:focus`, `:if`) are ignored when selecting.
 - **Lines executed only at load time** are not attributed to any test, so a mutant whose only
   execution is class-body code is `uncovered`.
 - **`uncovered`, `error`, and `skipped` never enter the score.** They are reported separately so a
@@ -250,6 +244,6 @@ so `./bin/formal` runs them on their own. `formal/README.md` lists what is prove
 trusted.
 
 `docs/DESIGN.md` is the contract the implementation was built against: value objects, operator
-protocol, mutant lifecycle, aridity rules, and the framework APIs that were verified by probing
-rather than guessed. `fixture/` holds small projects with deliberately weak assertions, one per
-framework.
+protocol, mutant lifecycle, aridity rules, and the minitest APIs that were verified by probing
+rather than guessed. `fixture/` holds the small projects the tests run against: a minitest calc,
+a load-time plugin, a source corpus, and a Rails app.

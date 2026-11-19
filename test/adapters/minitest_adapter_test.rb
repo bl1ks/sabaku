@@ -8,9 +8,8 @@ class MinitestAdapterTest < Minitest::Test
 
   def test_preload_fixture_and_run_subsets
     in_project("minitest_calc") do
-      adapter = Mutation::Adapter.for(:minitest, config_for)
+      adapter = Mutation::Adapters::MinitestAdapter.new
 
-      assert_equal :minitest, adapter.name
       adapter.preload!
 
       ids = adapter.test_ids
@@ -27,7 +26,7 @@ class MinitestAdapterTest < Minitest::Test
 
   def test_failing_test_returns_failed_outcome_without_raising
     in_project("failing_minitest", glob: "test/*_case.rb") do
-      adapter = Mutation::Adapter.for(:minitest, config_for)
+      adapter = Mutation::Adapters::MinitestAdapter.new
       adapter.preload!
 
       ids = adapter.test_ids
@@ -48,7 +47,7 @@ class MinitestAdapterTest < Minitest::Test
 
   def test_unknown_id_is_an_error_outcome_not_an_exception
     in_project("minitest_calc") do
-      adapter = Mutation::Adapter.for(:minitest, config_for)
+      adapter = Mutation::Adapters::MinitestAdapter.new
       adapter.preload!
 
       outcome = adapter.run(["Nope#test_missing"])
@@ -61,7 +60,7 @@ class MinitestAdapterTest < Minitest::Test
   def test_custom_test_glob
     in_project("minitest_calc") do
       ENV["RUBY_MUTATION_TEST_GLOB"] = "test/*_test.rb"
-      adapter = Mutation::Adapter.for(:minitest, config_for)
+      adapter = Mutation::Adapters::MinitestAdapter.new
       adapter.preload!
 
       assert_equal 6, adapter.test_ids.size
@@ -79,7 +78,7 @@ class MinitestAdapterTest < Minitest::Test
     Minitest.send(:remove_const, :Spec)
 
     in_project("no_spec_minitest", glob: "test/*_case.rb") do
-      adapter = Mutation::Adapter.for(:minitest, config_for)
+      adapter = Mutation::Adapters::MinitestAdapter.new
       adapter.preload!
       assert_equal ["HiddenCaseTest#test_value"], adapter.test_ids
     end

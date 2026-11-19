@@ -15,7 +15,7 @@ class FixtureMutantsTest < Minitest::Test
   end
 
   def inventory
-    source(read_fixture("rspec_inventory", "lib", "inventory.rb"), INVENTORY)
+    source(read_fixture("inventory", "lib", "inventory.rb"), INVENTORY)
   end
 
   def mutants_for_fixture(built, operators: Mutation::Operator::Registry.ids, per_line: 100)

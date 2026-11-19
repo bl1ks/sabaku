@@ -7,7 +7,6 @@ module Mutation
     :paths,
     :exclude,
     :operators,
-    :adapter,
     :jobs,
     :timeout,
     :per_line,
@@ -25,7 +24,7 @@ module Mutation
     :weak
   ) do
     def initialize(paths: [], exclude: [], operators: Operator::Registry.defaults,
-                   adapter: :minitest, jobs: 1, timeout: 5.0, per_line: 1,
+                   jobs: 1, timeout: 5.0, per_line: 1,
                    diff_ranges: nil, coverage: true, isolation: :fork,
                    report: :terminal, output: nil, env: {}, requires: [], setup: nil, setup_path: nil,
                    fail_fast: false, baseline: true, weak: true)
@@ -33,7 +32,6 @@ module Mutation
         paths: Array(paths).map(&:to_s).freeze,
         exclude: Array(exclude).map(&:to_s).freeze,
         operators: Array(operators).map(&:to_sym).freeze,
-        adapter: adapter.to_sym,
         jobs: Integer(jobs),
         timeout: Float(timeout),
         per_line: normalize_per_line(per_line),

@@ -11,7 +11,7 @@ class CoverageSamplerTest < Minitest::Test
   def test_shipping_test_covers_shipping_lines_and_not_unrelated_ones
     in_project("minitest_calc") do
       source = Mutation::Source.new("lib/pricing.rb", File.read("lib/pricing.rb"))
-      adapter = Mutation::Adapter.for(:minitest, config_for)
+      adapter = Mutation::Adapters::MinitestAdapter.new
       map = Mutation::Adapters::CoverageSampler.new(config_for, adapter, [source]).call
 
       # Both tests that call Pricing#shipping must be recorded on the lines of
@@ -44,10 +44,10 @@ class CoverageSamplerTest < Minitest::Test
       mutants = Mutation::Analyzer.new([source], config).mutants
 
       full = Mutation::Adapters::CoverageSampler.new(
-        config, Mutation::Adapter.for(:minitest, config), [source]
+        config, Mutation::Adapters::MinitestAdapter.new, [source]
       ).call
       scoped = Mutation::Adapters::CoverageSampler.new(
-        config, Mutation::Adapter.for(:minitest, config), [source], mutants: mutants
+        config, Mutation::Adapters::MinitestAdapter.new, [source], mutants: mutants
       ).call
 
       mutants.each do |mutant|
@@ -66,7 +66,7 @@ class CoverageSamplerTest < Minitest::Test
       config = config_for
       mutants = Mutation::Analyzer.new([source], config).mutants
       sampler = Mutation::Adapters::CoverageSampler.new(
-        config, Mutation::Adapter.for(:minitest, config), [source], mutants: mutants
+        config, Mutation::Adapters::MinitestAdapter.new, [source], mutants: mutants
       )
       map = sampler.call
       weak = sampler.weak_report
@@ -88,25 +88,8 @@ class CoverageSamplerTest < Minitest::Test
     end
   end
 
-  def test_rspec_examples_are_recorded_by_native_id
-    in_project("rspec_inventory") do
-      source = Mutation::Source.new("lib/inventory.rb", File.read("lib/inventory.rb"))
-      config = config_for(adapter: :rspec)
-      adapter = Mutation::Adapter.for(:rspec, config)
-      map = Mutation::Adapters::CoverageSampler.new(config, adapter, [source]).call
-
-      release_example = "./spec/inventory_spec.rb[1:5]"
-      restock_example = "./spec/inventory_spec.rb[1:4]"
-
-      assert_includes map.tests_for("lib/inventory.rb", 35), release_example
-      refute_includes map.tests_for("lib/inventory.rb", 35), restock_example
-      assert_includes map.tests_for("lib/inventory.rb", 43), restock_example
-      refute_includes map.tests_for("lib/inventory.rb", 43), release_example
-    end
-  end
-
   # Ruby instruments a file when it is compiled. If an embedding process (or an
-  # earlier adapter preload) already required the source before Coverage.start,
+  # earlier preload) already required the source before Coverage.start,
   # the sampler must re-load that target under coverage instead of returning an
   # empty map for it.
   def test_source_loaded_before_coverage_start_is_still_instrumented
@@ -117,7 +100,7 @@ class CoverageSamplerTest < Minitest::Test
 
       source = Mutation::Source.new("lib/pricing.rb", File.read("lib/pricing.rb"))
       config = config_for
-      adapter = Mutation::Adapter.for(:minitest, config)
+      adapter = Mutation::Adapters::MinitestAdapter.new
       map = Mutation::Adapters::CoverageSampler.new(config, adapter, [source]).call
 
       assert_includes map.tests_for("lib/pricing.rb", 39), SHIPPING_TEST
@@ -128,7 +111,7 @@ class CoverageSamplerTest < Minitest::Test
     in_project("failing_minitest", glob: "test/*_case.rb") do
       source = Mutation::Source.new("lib/thing.rb", File.read("lib/thing.rb"))
       config = config_for
-      adapter = Mutation::Adapter.for(:minitest, config)
+      adapter = Mutation::Adapters::MinitestAdapter.new
 
       error = assert_raises(Mutation::BaselineError) do
         Mutation::Adapters::CoverageSampler.new(config, adapter, [source]).call
@@ -144,7 +127,7 @@ class CoverageSamplerTest < Minitest::Test
     in_project("failing_minitest", glob: "test/*_case.rb") do
       source = Mutation::Source.new("lib/thing.rb", File.read("lib/thing.rb"))
       config = config_for(baseline: false)
-      adapter = Mutation::Adapter.for(:minitest, config)
+      adapter = Mutation::Adapters::MinitestAdapter.new
 
       map = Mutation::Adapters::CoverageSampler.new(config, adapter, [source]).call
 

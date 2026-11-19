@@ -44,7 +44,7 @@ module Mutation
       # LoadError is a ScriptError, not a StandardError, so it would otherwise escape the
       # CLI and exit 1 with a raw backtrace, which reads like a test failure.
       @err.puts("mutation: #{e.message}")
-      @err.puts("mutation: a gem the adapter needs is not installed; add it to your bundle")
+      @err.puts("mutation: a gem the suite needs is not installed; add it to your bundle")
       EXIT_ERROR
     rescue StandardError => e
       @err.puts("mutation: #{e.class}: #{e.message}")
@@ -69,7 +69,7 @@ module Mutation
         return EXIT_OK
       end
 
-      adapter = start_adapter(cfg)
+      adapter = start_adapter
       coverage = collect_coverage(cfg, adapter, sources, mutants)
       if coverage.nil?
         # Selection failed. Running every test for every mutant is slow but correct;
@@ -122,16 +122,14 @@ module Mutation
       @out.puts("  ruby       #{RUBY_VERSION}")
       @out.puts("  prism      #{defined?(Prism::VERSION) ? Prism::VERSION : "missing"}")
       @out.puts("  minitest   #{framework_version("minitest", "Minitest::VERSION")}")
-      @out.puts("  rspec      #{framework_version("rspec", "RSpec::Version::STRING")}")
       @out.puts("  data       #{defined?(Data) ? "ok" : "missing"}")
       @out.puts("  coverage   #{require_coverage}")
       @out.puts("  cpus       #{cpu_count}")
-      @out.puts("  adapters   minitest, rspec")
       @out.puts("  operators  #{Operator::Registry.ids.join(", ")}")
       EXIT_OK
     end
 
-    # Doctor has to answer "will the adapter work here", which means trying the require
+    # Doctor has to answer "will the suite work here", which means trying the require
     # rather than reporting whether somebody else already loaded it.
     def framework_version(gem_name, constant)
       require gem_name
@@ -152,7 +150,6 @@ module Mutation
       options = {}
       parser = OptionParser.new do |o|
         o.banner = "usage: mutation <run|list|doctor> [paths] [options]"
-        o.on("--adapter=NAME", "minitest or rspec") { |v| options[:adapter] = v.to_sym }
         o.on("--jobs=N", Integer, "mutants in flight at once") { |v| options[:jobs] = v }
         o.on("--timeout=SEC", Float, "per-mutant deadline") { |v| options[:timeout] = v }
         o.on("--operators=LIST", "comma separated operator ids") do |v|
@@ -217,7 +214,7 @@ module Mutation
         changed = Diff.git_ranges(revision)
         overrides[:diff_ranges] = Diff.intersect(overrides[:diff_ranges], changed)
       end
-      keys = %i[paths exclude operators adapter jobs timeout per_line diff_ranges
+      keys = %i[paths exclude operators jobs timeout per_line diff_ranges
                 coverage isolation report output env requires setup setup_path fail_fast baseline weak]
       Config.default(**overrides.slice(*keys))
     end
@@ -241,12 +238,12 @@ module Mutation
       file.sub(%r{\A#{Regexp.escape(Dir.pwd)}/}, "")
     end
 
-    def start_adapter(cfg)
-      Adapter.for(cfg.adapter, cfg)
+    def start_adapter
+      Adapters::MinitestAdapter.new
     rescue LoadError => e
       raise Mutation::Error,
-            "the #{cfg.adapter} adapter cannot be loaded (#{e.message}). " \
-            "Add #{cfg.adapter == :minitest ? "minitest" : "rspec"} to your bundle."
+            "the minitest adapter cannot be loaded (#{e.message}). " \
+            "Add minitest to your bundle."
     end
 
     # -> [CoverageMap, Weak::Report | nil], or nil when selection is unavailable and the
@@ -287,14 +284,13 @@ module Mutation
 
     def help
       <<~HELP
-        ruby-mutation #{VERSION} - mutation testing for minitest and rspec
+        ruby-mutation #{VERSION} - mutation testing for minitest
 
           mutation run [paths]     mutate, run the covering tests, report
           mutation list [paths]    show the mutants without running them
           mutation doctor          report the environment
 
         Common options:
-          --adapter=minitest|rspec   which suite to drive (default minitest)
           --jobs=N                   mutants in flight at once
           --timeout=SEC              per-mutant deadline (default 5)
           --operators=aor,ror,...    enabled operators

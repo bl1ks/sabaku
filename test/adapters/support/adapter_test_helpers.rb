@@ -36,7 +36,6 @@ module AdapterTestHelpers
   def config_for(overrides = {})
     defaults = {
       paths: ["lib"],
-      adapter: :minitest,
       jobs: 1,
       timeout: 5.0,
       coverage: true,

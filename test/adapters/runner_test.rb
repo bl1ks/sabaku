@@ -20,7 +20,6 @@ class RunnerTest < Minitest::Test
   def tiny_config(overrides = {})
     config_for({
       paths: ["lib"],
-      adapter: :minitest,
       output: File.join(@tmpdir, "mutation-report.json")
     }.merge(overrides))
   end
@@ -50,8 +49,8 @@ class RunnerTest < Minitest::Test
     in_project("tiny_minitest", glob: "test/*_case.rb") do |root|
       mutants ||= build_tiny_mutants(root)
       config = tiny_config(isolation: isolation, jobs: jobs, timeout: timeout,
-                           coverage: coverage, adapter: :minitest)
-      adapter = Mutation::Adapter.for(:minitest, config)
+                           coverage: coverage)
+      adapter = Mutation::Adapters::MinitestAdapter.new
       Mutation::Runner.new(config, analyzer: nil, adapter: adapter, coverage_map: map).call(mutants)
     end
   end
@@ -101,8 +100,8 @@ class RunnerTest < Minitest::Test
                             operator: :bool, node_kind: "FalseNode")
       map = Mutation::CoverageMap.empty
       map.record("LoopTest#test_spin", { "lib/loop.rb" => [4, 5, 6, 7] })
-      config = tiny_config(isolation: :fork, timeout: 0.3, adapter: :minitest)
-      adapter = Mutation::Adapter.for(:minitest, config)
+      config = tiny_config(isolation: :fork, timeout: 0.3)
+      adapter = Mutation::Adapters::MinitestAdapter.new
 
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       results = Mutation::Runner.new(config, analyzer: nil, adapter: adapter,
@@ -126,9 +125,9 @@ class RunnerTest < Minitest::Test
   def test_cache_hit_skips_execution
     in_project("tiny_minitest", glob: "test/*_case.rb") do |root|
       mutants = build_tiny_mutants(root).first(2)
-      config = tiny_config(isolation: :fork, adapter: :minitest)
+      config = tiny_config(isolation: :fork)
       map = tiny_coverage_map
-      adapter = Mutation::Adapter.for(:minitest, config)
+      adapter = Mutation::Adapters::MinitestAdapter.new
 
       first = Mutation::Runner.new(config, analyzer: nil, adapter: adapter,
                                            coverage_map: map).call(mutants)
@@ -149,9 +148,9 @@ class RunnerTest < Minitest::Test
   def test_cache_kill_switch_via_env
     in_project("tiny_minitest", glob: "test/*_case.rb") do |root|
       mutants = build_tiny_mutants(root).first(2)
-      config = tiny_config(isolation: :fork, adapter: :minitest)
+      config = tiny_config(isolation: :fork)
       map = tiny_coverage_map
-      adapter = Mutation::Adapter.for(:minitest, config)
+      adapter = Mutation::Adapters::MinitestAdapter.new
 
       ENV["RUBY_MUTATION_NO_CACHE"] = "1"
       begin
@@ -176,7 +175,7 @@ class RunnerTest < Minitest::Test
                               replacement: '"other"', operator: :str,
                               node_kind: "StringNode")
       config = tiny_config(fail_fast: true, jobs: 1)
-      adapter = Mutation::Adapter.for(:minitest, config)
+      adapter = Mutation::Adapters::MinitestAdapter.new
       results = Mutation::Runner.new(config, analyzer: nil, adapter: adapter,
                                      coverage_map: tiny_coverage_map).call(mutants)
 
@@ -200,7 +199,7 @@ class RunnerTest < Minitest::Test
     in_project("tiny_minitest", glob: "test/*_case.rb") do
       config = tiny_config(setup: Mutation.setup(setup_path), setup_path: setup_path,
                            env: { "MUTATION_HOOK_TEST" => "on" })
-      adapter = Mutation::Adapter.for(:minitest, config)
+      adapter = Mutation::Adapters::MinitestAdapter.new
       Mutation::Runner.new(config, analyzer: nil, adapter: adapter,
                            coverage_map: tiny_coverage_map).call(build_tiny_mutants(Dir.pwd))
     end

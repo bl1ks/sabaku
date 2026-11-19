@@ -9,7 +9,6 @@
 # with these environment variables:
 #
 #   RUBY_MUTATION_ROOT         project root (child cwd is also set to this)
-#   RUBY_MUTATION_ADAPTER      "minitest" | "rspec"
 #   RUBY_MUTATION_TEST_IDS     JSON array of test ids to run
 #   RUBY_MUTATION_MUTANT_PATH  repo-relative path of the mutated file
 #   RUBY_MUTATION_MUTATED_FILE absolute path of the mutated temporary file
@@ -46,12 +45,12 @@ module Mutation
           root = File.expand_path(ENV.fetch("RUBY_MUTATION_ROOT", Dir.pwd))
           Dir.chdir(root)
           index = Integer(ENV.fetch("RUBY_MUTATION_CHILD_INDEX", "0"))
-          adapter_name = ENV.fetch("RUBY_MUTATION_ADAPTER", "minitest")
           target_path = ENV.fetch("RUBY_MUTATION_MUTANT_PATH")
           mutated_file = ENV.fetch("RUBY_MUTATION_MUTATED_FILE")
           test_ids = JSON.parse(ENV.fetch("RUBY_MUTATION_TEST_IDS", "[]"))
 
-          @adapter = build_adapter(adapter_name)
+          require "mutation/adapters/minitest"
+          @adapter = Mutation::Adapters::MinitestAdapter.new
           prepare_load_path(root)
           install_loader(target_path, mutated_file, root) unless neutral?
           @setup = load_setup
@@ -81,16 +80,11 @@ module Mutation
         ENV["RUBY_MUTATION_NEUTRAL"] == "1"
       end
 
-      def build_adapter(name)
-        require "mutation/adapters/base"
-        Mutation::Adapter.for(name, nil)
-      end
-
-      # The loader intercepts the project's own `require`s, so its lib/test/spec
+      # The loader intercepts the project's own `require`s, so its lib/test
       # roots must already be on the load path for them to resolve exactly as
       # they do normally.
       def prepare_load_path(root)
-        %w[lib test spec].each do |directory|
+        %w[lib test].each do |directory|
           path = File.join(root, directory)
           next unless File.directory?(path)
           next if $LOAD_PATH.include?(path)

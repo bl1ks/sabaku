@@ -1,6 +1,6 @@
 # Rails
 
-ruby-mutation drives minitest or rspec; it has no Rails adapter and no Rails dependency. What a
+ruby-mutation drives a minitest suite; it has no Rails adapter and no Rails dependency. What a
 Rails app needs is a boot sequence and a database that survives a fork, and both are the project's
 job. The `--setup` file is where a project states them.
 
@@ -129,12 +129,6 @@ Leave out of scope for now: ERB templates, system tests (a browser process per m
 initializers, routes, and `config/`. Constants redefined at boot, `define_method` bodies, and
 `Struct`/`Data` field lists are not mutable in place; the analyzer skips what the operators do not
 recognize rather than guessing.
-
-## rspec-rails
-
-The rspec adapter runs examples directly, so `before(:suite)` and `before(:context)` do not run.
-Transactional fixtures are an `around` hook and do run. If your suite depends on suite-level state,
-add it to `after_boot` instead of a `before(:suite)` block.
 
 ## Cost
 

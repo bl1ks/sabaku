@@ -41,6 +41,25 @@ class CLITest < Minitest::Test
     end
   end
 
+  def test_the_removed_adapter_flag_is_rejected
+    in_project do
+      code, _out, err = start(["list", "--adapter=rspec"])
+
+      assert_equal 2, code
+      assert_includes err, "invalid option: --adapter=rspec"
+    end
+  end
+
+  def test_doctor_reports_minitest_only
+    in_project do
+      code, out, err = start(["doctor"])
+
+      assert_equal 0, code, err
+      assert_includes out, "minitest"
+      refute_includes out, "rspec"
+    end
+  end
+
   def test_since_restricts_the_mutants_to_the_lines_a_revision_changed
     Dir.mktmpdir("ruby-mutation-cli-git") do |dir|
       Dir.chdir(dir) do

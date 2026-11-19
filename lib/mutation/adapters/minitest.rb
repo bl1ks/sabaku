@@ -1,10 +1,22 @@
 # frozen_string_literal: true
 
-require_relative "base"
+require_relative "../errors"
 
 module Mutation
   module Adapters
-    # Minitest 6.1 adapter.
+    # Runs a minitest project: loads its test files once, then runs exact test
+    # ids in this process.
+    #
+    # Contract:
+    #
+    #   MinitestAdapter.new -> adapter
+    #   adapter.preload!    -> loads the framework + project tests once
+    #   adapter.test_ids    -> Array[String], stable native ids
+    #   adapter.run(ids)    -> Outcome(ok:, failed_id:, error:)
+    #
+    # `preload!` followed by repeated `run(ids)` in forked children is the fast
+    # path. `run` must never raise for an ordinary test failure and must never
+    # call `exit`; it runs exactly the ids it is given, in the current process.
     #
     # Verified against the container's minitest 6.1.0, which differs from
     # minitest 5 in ways this file depends on:
@@ -20,13 +32,30 @@ module Mutation
     #
     # `klass.new(method).run` is silent and returns the Result, so the subset
     # runner is just: run each instance, inspect `failures`.
-    class MinitestAdapter < Adapter
-      def name
-        :minitest
+    class MinitestAdapter
+      Outcome = Data.define(:ok, :failed_id, :error) do
+        def initialize(ok:, failed_id: nil, error: nil)
+          super(ok: ok ? true : false, failed_id: failed_id, error: error)
+        end
+
+        def ok?
+          ok
+        end
+
+        def failed?
+          !ok
+        end
       end
 
-      def test_glob
-        MINITEST_GLOB
+      MINITEST_GLOB = "test/**/*_test.rb"
+
+      attr_reader :root
+
+      def initialize
+        # The project root is the current working directory; the adapter never
+        # assumes the library checkout is the project.
+        @root = Dir.pwd
+        @preloaded = false
       end
 
       def preload!
@@ -109,6 +138,49 @@ module Mutation
         end
 
         Outcome.new(ok: true, failed_id: nil, error: nil)
+      end
+
+      def preloaded?
+        @preloaded
+      end
+
+      # The files this adapter will load, discovered without loading anything. The
+      # runner fingerprints them for the result cache, so a test that changed
+      # invalidates the verdicts it produced.
+      def test_files
+        @test_files ||= discover_test_files(MINITEST_GLOB)
+      end
+
+      def inspect
+        "#<#{self.class} root=#{root.inspect} ids=#{@test_ids&.size.inspect}>"
+      end
+
+      protected
+
+      # `<project>/lib` and `<project>/test` are the load-path roots the fixtures
+      # and real projects expect. Only existing directories are added, and only
+      # once, so repeated preloads do not grow $LOAD_PATH.
+      def setup_load_path!
+        %w[lib test].each do |dir|
+          path = File.join(root, dir)
+          next unless File.directory?(path)
+          next if $LOAD_PATH.include?(path)
+
+          $LOAD_PATH.unshift(path)
+        end
+      end
+
+      # ENV["RUBY_MUTATION_TEST_GLOB"] overrides the framework default.
+      def discover_test_files(default_glob)
+        pattern = ENV["RUBY_MUTATION_TEST_GLOB"]
+        pattern = default_glob if pattern.nil? || pattern.empty?
+        Dir.glob(File.expand_path(pattern, root)).select { |file| File.file?(file) }.sort
+      end
+
+      def repo_relative(path)
+        absolute = File.expand_path(path)
+        prefix = root.end_with?("/") ? root : "#{root}/"
+        absolute.start_with?(prefix) ? absolute[prefix.length..] : absolute
       end
 
       private
@@ -204,3 +276,8 @@ module Mutation
     end
   end
 end
+
+# The CLI reaches the optional coverage helper through
+# `defined?(Adapters::CoverageSampler)` behind a guard, so loading it here makes
+# the helper part of the adapter namespace whenever the adapter layer is loaded.
+require_relative "coverage_sampler"

@@ -64,7 +64,7 @@ fault variant that stops violating its invariant, or a finding that stops reprod
 - `formal/lean/Mutation/Score.lean`: `Report#score`, `Result#counted?`.
 - `formal/lean/Mutation/Cache.lean`: `Cache#fetch`, `Cache#store`, `Cache#load_entries`,
   `Runner#persist_results`.
-- `formal/quint/runner.qnt`: `Runner#run_pool`, `prepare_entry`'s uncovered path, `finish_job`,
+- `formal/quint/runner.qnt`: `Runner#run_pool`, `prepare_entry`'s uncovered and weak paths, `finish_job`,
   `classify`, `halt_fast_fail`, `mark_skipped`, `attribute_unmeasured`, `measure_first_load`'s
   first-load child, `Report#score`'s denominator.
 - `formal/regressions.sh`: the four fixed findings, end to end through the CLI and the library.

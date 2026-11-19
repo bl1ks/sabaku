@@ -37,7 +37,6 @@ Config = Data.define(
   :paths,        # Array[String] files or globs to mutate
   :exclude,      # Array[String] globs
   :operators,    # Array[Symbol] enabled operator ids
-  :adapter,      # Symbol, :minitest | :rspec
   :jobs,         # Integer >= 1
   :timeout,      # Float seconds per mutant
   :per_line,     # Integer (default 1) or Float::INFINITY for `--per-line=all`
@@ -161,20 +160,19 @@ CoverageMap#merge(other)                  -> CoverageMap
 CoverageMap#to_h / .from_h                # JSON round trip
 ```
 
-Adapters own per-test coverage collection; `CoverageMap` is a plain value that only answers
-"which tests execute this file and line".
+The coverage sampler owns per-test coverage collection; `CoverageMap` is a plain value that only
+answers "which tests execute this file and line".
 
 ```ruby
-# lib/mutation/adapters/base.rb
-Adapter.for(:minitest, config) -> Adapter
-Adapter#name            -> Symbol
-Adapter#preload!        -> void          # loads the project's tests into this process
-Adapter#test_ids        -> Array[String] # stable ids, framework native
-Adapter#run(ids)        -> Outcome       # runs those ids only, in this process
+# lib/mutation/adapters/minitest.rb
+MinitestAdapter.new     -> adapter
+adapter.preload!        -> void          # loads the project's tests into this process
+adapter.test_ids        -> Array[String] # stable ids, minitest native
+adapter.run(ids)        -> Outcome       # runs those ids only, in this process
 Outcome = Data.define(:ok, :failed_id, :error)   # ok: Boolean, error: Exception | nil
 ```
 
-`preload!` then repeated `run(ids)` in forked children is the fast path. `Adapter#run` must never
+`preload!` then repeated `run(ids)` in forked children is the fast path. `MinitestAdapter#run` must never
 raise for an ordinary test failure, and must never call `exit`.
 
 ```ruby
@@ -273,8 +271,8 @@ a copy, and the mutant is `:skipped`. Mutations inside `define_method` blocks, i
 raise, and land in the reload-control branch.
 
 `isolation: :process` replaces steps 2 to 4 with a fresh `ruby` process per mutant running the
-adapter with a filter flag; it uses the same first-load loader for every mutant. Slower, and the
-fallback surface for a file that fork isolation cannot load twice.
+minitest adapter with the selected test ids in the environment; it uses the same first-load loader
+for every mutant. Slower, and the fallback surface for a file that fork isolation cannot load twice.
 
 ## Cache
 
@@ -284,7 +282,7 @@ fallback surface for a file that fork isolation cannot load twice.
   isolation, weak mode, timeout)
 - `Mutant#id` (path, scope, AST path, operator, replacement)
 - sha256 of the full mutated source that would be loaded
-- adapter name, Ruby version, and the selected test ids
+- Ruby version and the selected test ids
 
 A hit skips the child and reports the stored status and reason with duration 0. `:uncovered`
 results are not stored. `RUBY_MUTATION_NO_CACHE` is the kill switch.

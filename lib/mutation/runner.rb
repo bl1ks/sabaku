@@ -213,7 +213,6 @@ module Mutation
           fingerprint,
           mutant.id.to_s,
           Digest::SHA256.hexdigest(mutated_source.to_s),
-          @adapter.name.to_s,
           RUBY_VERSION,
           selected.map(&:to_s).sort.join("\u0000")
         ].join("\u0000")
@@ -463,7 +462,6 @@ module Mutation
       reader, writer = IO.pipe
       environment = {
         "RUBY_MUTATION_ROOT" => @adapter.root.to_s,
-        "RUBY_MUTATION_ADAPTER" => @adapter.name.to_s,
         "RUBY_MUTATION_TEST_IDS" => JSON.generate(ids.map(&:to_s)),
         "RUBY_MUTATION_MUTANT_PATH" => path,
         "RUBY_MUTATION_MUTATED_FILE" => temporary,

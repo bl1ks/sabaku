@@ -58,7 +58,7 @@ module Mutation
         Boot.require_paths(@config)
         @adapter.preload!
         Boot.fire(@config, :after_boot)
-        # In an embedded process another adapter may already have required the
+        # In an embedded process the project may already have required the
         # mutated files before we started Coverage; Ruby only instruments files
         # when they are compiled, so those files would silently report no hits.
         # Reload exactly those targets now, while Coverage is on.
@@ -71,7 +71,7 @@ module Mutation
           outcome = begin
             @adapter.run([test_id])
           rescue StandardError => e
-            Adapter::Outcome.new(ok: false, failed_id: test_id, error: e)
+            MinitestAdapter::Outcome.new(ok: false, failed_id: test_id, error: e)
           end
           # A failing test still has valid coverage; keep sampling so the report
           # can name every test that has to be fixed.

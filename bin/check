@@ -20,12 +20,9 @@ e2e
 
 echo "== minitest 5 (the version Ruby ships as a bundled gem)"
 mkdir -p /tmp/mt5
-if ! gem list -i rspec --install-dir /tmp/mt5 >/dev/null 2>&1; then
-  gem install --no-document --install-dir /tmp/mt5 rspec >/dev/null
-fi
 GEM_HOME=/tmp/mt5 GEM_PATH=/tmp/mt5:/usr/local/lib/ruby/gems/3.4.0
 export GEM_HOME GEM_PATH
-ruby -e "require \"minitest\"; require \"rspec\"; puts \"   minitest #{Minitest::VERSION}, rspec #{RSpec::Version::STRING}\""
+ruby -e "require \"minitest\"; puts \"   minitest #{Minitest::VERSION}\""
 unit
 e2e
 
@@ -35,9 +32,10 @@ gem build -q ruby-mutation.gemspec >/dev/null
 rm -rf /tmp/gemhome && mkdir -p /tmp/gemhome
 gem install --no-document --install-dir /tmp/gemhome ruby-mutation-*.gem >/dev/null
 rm -f ruby-mutation-*.gem
-cd fixture/rspec_inventory
+cd fixture/minitest_calc
 GEM_HOME=/tmp/gemhome GEM_PATH=/tmp/gemhome:/usr/local/bundle:/usr/local/lib/ruby/gems/3.4.0 \
-  /tmp/gemhome/bin/mutation run lib --adapter=rspec --min-score=50 --report=quiet
+  RUBY_MUTATION_NO_CACHE=1 \
+  /tmp/gemhome/bin/mutation run lib --min-score=50 --report=quiet
 echo "   installed gem: campaign ok"
 '
 

@@ -17,7 +17,7 @@ OUT = File.join(ROOT, "formal", "out")
 
 SOURCES = [
   "fixture/minitest_calc/lib/pricing.rb",
-  "fixture/rspec_inventory/lib/inventory.rb",
+  "fixture/inventory/lib/inventory.rb",
   "formal/replay/corpus/kitchen_sink.rb"
 ].freeze
 
