@@ -11,8 +11,10 @@ require "timeout"
 # fork a child, re-evaluate a model with a mutation, and run a transactional
 # fixture test that writes to SQLite.
 #
-# Rails and sqlite3 are not in the default image, so this test skips unless they
-# are loadable. `ruby-mutation:rails` has both:
+# Rails, sqlite3 and mysql2 are not in the default image, so this test skips
+# unless all three are loadable. `ruby-mutation:rails` has them (build it from
+# docker/rails.Dockerfile), and bin/check-rails runs this test and the MySQL one
+# against a throwaway server:
 #
 #   docker run --rm -v "$PWD:/app" -w /app --user "$(id -u):$(id -g)" \
 #     -e HOME=/tmp ruby-mutation:rails ruby -Ilib -Itest test/e2e/rails_test.rb
@@ -22,7 +24,7 @@ class RailsCampaignTest < Minitest::Test
   BIN = File.join(ROOT, "bin", "mutation")
 
   def setup
-    skip "rails and sqlite3 are not installed" unless rails_available?
+    skip "rails, sqlite3 and mysql2 are not installed" unless rails_available?
   end
 
   def test_campaign_boots_rails_eager_loads_and_runs_a_database_test
@@ -60,7 +62,9 @@ class RailsCampaignTest < Minitest::Test
   private
 
   def rails_available?
-    system(RbConfig.ruby, "-e", "require 'rails'; require 'sqlite3'",
+    # The fixture Gemfile declares mysql2, so the app's bundle needs it to boot
+    # even when this test only touches SQLite.
+    system(RbConfig.ruby, "-e", "require 'rails'; require 'sqlite3'; require 'mysql2'",
            out: File::NULL, err: File::NULL)
   end
 

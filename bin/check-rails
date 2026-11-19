@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Rails and MySQL end to end, against a throwaway mysql:8.4 server. Exits
+# nonzero on the first failure so a reviewer can trust a single green line.
+set -euo pipefail
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+image=${RAILS_IMAGE:-ruby-mutation:rails}
+network="ruby-mutation-check-rails-$$"
+mysql="ruby-mutation-check-mysql-$$"
+
+cleanup() {
+  docker rm -f "$mysql" >/dev/null 2>&1 || true
+  docker network rm "$network" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+docker network create "$network" >/dev/null
+docker run -d --name "$mysql" --network "$network" \
+  -e MYSQL_ALLOW_EMPTY_PASSWORD=yes mysql:8.4 >/dev/null
+
+echo "== waiting for mysql"
+started=0
+for _ in $(seq 1 60); do
+  if docker exec "$mysql" mysqladmin ping -h127.0.0.1 --silent >/dev/null 2>&1; then
+    started=1
+    break
+  fi
+  sleep 1
+done
+if [ "$started" -ne 1 ]; then
+  echo "FAILED: mysql did not accept connections within 60s" >&2
+  exit 1
+fi
+
+run() {
+  local label=$1
+  shift
+  echo "== $label"
+  if ! docker run --rm -v "$root:/app" -w /app \
+      -e HOME=/tmp -e "RUBYOPT=" -e LANG=C.UTF-8 \
+      --network "$network" -e "MYSQL_HOST=$mysql" \
+      --user "$(id -u):$(id -g)" \
+      "$image" "$@"; then
+    echo "FAILED: $label" >&2
+    exit 1
+  fi
+}
+
+run "rails e2e (sqlite3)" ruby -Ilib -Itest test/e2e/rails_test.rb
+run "mysql e2e" ruby -Ilib -Itest test/e2e/mysql_test.rb

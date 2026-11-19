@@ -16,9 +16,22 @@ development:
 # Warning: The database defined as "test" will be erased and
 # re-generated from your development database when you run "rake".
 # Do not set this db to the same as development or production.
+#
+# MUTATION_DB=mysql swaps the test database for a MySQL server, which is what
+# test/e2e/mysql_test.rb and docs/rails.md's MySQL recipe use. Development and
+# production stay on SQLite.
 test:
+<% if ENV["MUTATION_DB"] == "mysql" %>
+  adapter: mysql2
+  host: <%= ENV.fetch("MYSQL_HOST", "127.0.0.1") %>
+  port: <%= Integer(ENV.fetch("MYSQL_PORT", "3306")) %>
+  username: <%= ENV.fetch("MYSQL_USER", "root") %>
+  password: <%= ENV.fetch("MYSQL_PASSWORD", "") %>
+  database: <%= ENV.fetch("MYSQL_DATABASE", "ruby_mutation_test") %>
+<% else %>
   <<: *default
   database: storage/test.sqlite3
+<% end %>
 
 # SQLite3 write its data on the local filesystem, as such it requires
 # persistent disks. If you are deploying to a managed service, you should
