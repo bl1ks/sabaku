@@ -192,10 +192,12 @@ network or filesystem call in an `if` body keeps that `if` live.
 
 ## Rails
 
-`--setup` gives a Rails app the four hooks it needs: `env`, `require_path`, `after_boot`
-(`eager_load!`), `before_fork` (disconnect the pool), and `child_start` (per-child database).
-[`docs/rails.md`](docs/rails.md) has the recipes for transactional fixtures, per-child SQLite
-copies, and PostgreSQL templates, plus what can and cannot be targeted.
+`--setup` gives a Rails app the hooks it needs: `env`, `require_path`, `after_boot`
+(`eager_load!`), `before_fork` (disconnect the pool), `child_start` and `before_test_run`
+(per-child database). [`docs/rails.md`](docs/rails.md) has the recipes for transactional
+fixtures, per-child SQLite copies, PostgreSQL templates, and MySQL clones, plus what can and
+cannot be targeted. `bin/check-rails` runs both campaigns, with a throwaway MySQL server for the
+MySQL half.
 
 ## Limits
 

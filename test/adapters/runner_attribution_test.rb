@@ -152,7 +152,7 @@ class RunnerAttributionTest < Minitest::Test
   # file proves the harness is fine, so this is an invalid mutant, not an error.
   def test_a_mutation_that_makes_the_file_unloadable_is_not_measured
     result = run_campaign(
-      "unviable_load_minitest", test_id: "RegistryTest#test_find",
+      "unviable_load_minitest", test_id: "UnviableRegistryTest#test_find",
       path: "lib/registry.rb", line: 19,
       original: 'add "answer", 42', replacement: "add", operator: :call, node_kind: "CallNode",
       map_lines: (1..21).to_a

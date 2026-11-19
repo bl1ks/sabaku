@@ -1,7 +1,11 @@
-A minimal Rails application used by `test/e2e/rails_test.rb` and
-`docs/rails.md`. It boots through `config/environment`, eager loads, and has one
-pure model and one Active Record model so the campaign exercises both a plain
-unit test and a transactional fixture.
+A minimal Rails application used by `test/e2e/rails_test.rb`,
+`test/e2e/mysql_test.rb`, and `docs/rails.md`. It boots through
+`config/environment`, eager loads, and has one pure model and one Active Record
+model so the campaign exercises both a plain unit test and a database test.
 
-The gems are not vendored. Run it in the `ruby-mutation:rails` image, which has
-Rails and sqlite3 installed, or point `BUNDLE_PATH` at your own bundle.
+SQLite is the default. `MUTATION_DB=mysql` boots the test environment on MySQL,
+with `mutation_mysql.rb` as the `--setup` file.
+
+The gems are not vendored. Build the image the checks use with
+`docker build -f docker/rails.Dockerfile -t ruby-mutation:rails .`, then run
+`bin/check-rails` for the SQLite and MySQL campaigns.

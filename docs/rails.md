@@ -4,8 +4,10 @@ ruby-mutation drives a minitest suite; it has no Rails adapter and no Rails depe
 Rails app needs is a boot sequence and a database that survives a fork, and both are the project's
 job. The `--setup` file is where a project states them.
 
-`fixture/rails_app` is a working example. `test/e2e/rails_test.rb` runs a campaign against it in
-the `ruby-mutation:rails` image.
+`fixture/rails_app` is a working example. `test/e2e/rails_test.rb` runs a campaign against it on
+SQLite, and `test/e2e/mysql_test.rb` runs the same app on MySQL. Build the image both use with
+`docker build -f docker/rails.Dockerfile -t ruby-mutation:rails .`, then run `bin/check-rails` to
+execute both campaigns against a throwaway `mysql:8.4` container.
 
 ## The setup file
 
@@ -43,12 +45,18 @@ The CLI applies the hooks at fixed points:
 | `before_fork` | parent | once, after the coverage pass, before the first child exists |
 | `child_start` | each child | before the mutated file is evaluated |
 | `before_test_run` | each child | after the mutation is applied, before the tests run |
+| `after_campaign` | parent | after the last child, before the process exits |
 
-A hook that raises stops the campaign with exit 2. A red suite stops it too, unless you pass
-`--no-baseline`: a test that fails with no mutation applied would kill every mutant it covers and
-produce a fake score. The coverage pass already runs every test once and reports what failed; with
-`--no-coverage` a forked or spawned child runs the whole suite with no mutation applied before the
-campaign starts.
+In process isolation `child_start` fires before the application boots, so `ActiveRecord` is not
+defined yet; application-level database work belongs in `before_test_run`, which fires after boot
+in both modes.
+
+A hook that raises stops the campaign with exit 2, except `after_campaign`: it runs after the
+verdict, so its failure is printed to stderr and the campaign keeps its exit status. A red suite
+stops it too, unless you pass `--no-baseline`: a test that fails with no mutation applied would
+kill every mutant it covers and produce a fake score. The coverage pass already runs every test
+once and reports what failed; with `--no-coverage` a forked or spawned child runs the whole suite
+with no mutation applied before the campaign starts.
 
 Two neutral children use the same hooks as a mutant: the baseline above, and the kill check that
 re-runs one failing test with the file loaded a second time and no mutation. Their `child_start`
@@ -117,8 +125,85 @@ child_start do |_index|
 end
 ```
 
-Drop the databases from a `before_test_run`-time `at_exit` or a cleanup script; the runner kills
-children on timeout, so a child that never returns still leaks its database.
+Drop the copies from the parent's `after_campaign`, as the MySQL recipe below does. A
+`before_test_run`-time `at_exit` never runs, because children end with `Kernel#exit!`.
+
+### MySQL, non-transactional
+
+MySQL has no `CREATE DATABASE ... TEMPLATE`, so each child creates an empty database, matches the
+source database's character set and collation, and loads `db/schema.rb` into it.
+`fixture/rails_app/mutation_mysql.rb` is the same file, and `test/e2e/mysql_test.rb` runs it.
+
+```ruby
+# mutation_mysql.rb
+env "RAILS_ENV" => "test"
+require_path "./config/environment"
+
+after_boot do
+  Rails.application.eager_load!
+end
+
+before_fork do
+  ActiveRecord::Base.connection_handler.clear_all_connections!
+end
+
+prefix = ENV.fetch("MUTATION_DB_PREFIX") { "mutation_#{Process.pid}" }
+
+settings = lambda do
+  ActiveRecord::Base.connection_db_config.configuration_hash.dup
+end
+
+maintenance = lambda do
+  ActiveRecord::Base.establish_connection(settings.call.except(:database))
+  ActiveRecord::Base.connection
+end
+
+after_campaign do
+  connection = maintenance.call
+  names = connection.select_values("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA")
+  names.select { |name| name.start_with?("#{prefix}_") }
+       .each { |name| connection.drop_database(name) }
+end
+
+before_test_run do
+  source = settings.call
+  name = "#{prefix}_#{Process.pid}"
+
+  connection = maintenance.call
+  connection.drop_database(name)
+  charset, collation = connection.select_rows(
+    "SELECT DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME " \
+    "FROM information_schema.SCHEMATA " \
+    "WHERE SCHEMA_NAME = #{connection.quote(source.fetch(:database))}"
+  ).first
+  connection.create_database(name, source.merge(encoding: charset, collation: collation))
+
+  ActiveRecord::Base.establish_connection(source.merge(database: name))
+  load Rails.root.join("db/schema.rb")
+end
+```
+
+`MUTATION_DB_PREFIX` is read once in the parent, so every child shares it, and the child database
+adds the child's pid. A child drops its own name before use, because a reused pid must not inherit
+a stale copy. The cleanup selects the names and filters with `start_with?` in Ruby rather than a
+`LIKE` pattern, where `_` is a wildcard and would match the main test database too.
+
+Transactional fixtures hide the clone: they roll back every test, so a shared database would pass
+as well. The fixture's `test_helper.rb` sets `use_transactional_tests = false` and truncates in a
+`setup` block when `MUTATION_DB=mysql`, and its `config/database.yml` selects the mysql2 branch for
+the test environment.
+
+### Cleanup runs in the parent
+
+Both isolation modes end a child with `Kernel#exit!`, and `bin/mutation` ends the parent the same
+way, so an `at_exit` registered by a `--setup` file never runs: not in a child, not after the
+campaign. Teardown belongs in `after_campaign`, which the CLI fires once after the last child; a
+hook that raises is reported on stderr without changing the campaign's exit status. A child killed
+on a timeout cannot clean up after itself, and a campaign that dies before `after_campaign` leaves
+its `<prefix>_*` databases behind. `after_campaign` drops by prefix, so a later run with the same
+`MUTATION_DB_PREFIX` reclaims them, and a child that reuses a pid drops that name before copying.
+With the default pid-based prefix the next run uses a new namespace, so an orphaned set needs a
+manual `DROP DATABASE`.
 
 ## What can be targeted
 
