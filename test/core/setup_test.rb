@@ -18,6 +18,7 @@ class SetupTest < Minitest::Test
       require_path "./config/environment"
       after_boot { $setup_order << :after_boot }
       child_start { |index| $setup_order << [:child_start, index] }
+      after_campaign { $setup_order << :after_campaign }
     RUBY
       setup = Mutation.setup(path)
 
@@ -28,7 +29,8 @@ class SetupTest < Minitest::Test
       $setup_order = []
       setup.fire(:child_start, 2)
       setup.fire(:after_boot)
-      assert_equal [[:child_start, 2], :after_boot], $setup_order
+      setup.fire(:after_campaign)
+      assert_equal [[:child_start, 2], :after_boot, :after_campaign], $setup_order
     end
   end
 

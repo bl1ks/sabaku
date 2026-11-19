@@ -7,8 +7,8 @@ require "tmpdir"
 require "fileutils"
 require "timeout"
 
-# The boot contract end to end: --env, --require, and the four setup hooks run
-# in the order a Rails application needs, against the real binary and a real
+# The boot contract end to end: --env, --require, and the setup hooks run in the
+# order a Rails application needs, against the real binary and a real
 # forked campaign.
 class BootCampaignTest < Minitest::Test
   BIN = File.expand_path("../../bin/mutation", __dir__)
@@ -27,6 +27,7 @@ class BootCampaignTest < Minitest::Test
       assert_equal "required:on", lines.first, "the required file must see --env"
 
       hooks = lines.drop(1)
+      after_campaign = hooks.pop
       assert_equal %w[after_boot before_fork], hooks.first(2)
       children = hooks.drop(2)
       refute_empty children
@@ -34,6 +35,23 @@ class BootCampaignTest < Minitest::Test
         assert_match(/\Achild_start:\d+\z/, child_start.to_s)
         assert_equal "before_test_run", test_run
       end
+      assert_equal "after_campaign", after_campaign
+    end
+  end
+
+  def test_a_raising_after_campaign_hook_is_reported_without_changing_the_verdict
+    Dir.mktmpdir("ruby-mutation-boot") do |dir|
+      write_project(dir)
+      File.write(File.join(dir, "mutation.rb"), <<~RUBY)
+        after_campaign { raise "cleanup exploded" }
+      RUBY
+
+      out, err, status = run_cli(dir, "run", "lib", "--jobs=1", "--report=json",
+                                 "--setup=mutation.rb", "--env=MUTATION_PROBE=on")
+
+      assert_equal 0, status.exitstatus, err
+      assert_includes err, "mutation: after_campaign hook failed: RuntimeError: cleanup exploded"
+      assert_operator JSON.parse(out.lines.last)["mutants"], :>, 0
     end
   end
 
@@ -91,6 +109,7 @@ class BootCampaignTest < Minitest::Test
       before_fork { record(#{log.inspect}, "before_fork") }
       child_start { |index| record(#{log.inspect}, "child_start:\#{index}") }
       before_test_run { record(#{log.inspect}, "before_test_run") }
+      after_campaign { record(#{log.inspect}, "after_campaign") }
       MUTATION_BOOT_LOG = #{log.inspect}
       # A bare method so the hook blocks stay one line each.
       def record(path, line)

@@ -100,6 +100,18 @@ module Mutation
       return EXIT_OK if threshold.nil?
 
       report.score_pct < threshold ? EXIT_BELOW_SCORE : EXIT_OK
+    ensure
+      finish_campaign(cfg) if cfg
+    end
+
+    # after_campaign runs once, after the last child, before the process exits.
+    # A cleanup hook that raises is reported without changing the campaign's
+    # verdict: the campaign already happened, and bin/mutation's exit! is what
+    # makes this hook the only place a setup file can clean up.
+    def finish_campaign(cfg)
+      Boot.fire(cfg, :after_campaign)
+    rescue BootError => e
+      @err.puts("mutation: #{e.message}")
     end
 
     def list_command

@@ -4,7 +4,8 @@ module Mutation
   # Project-level boot script. It is the only place a project can add code that
   # runs around a campaign, which is what a framework like Rails needs: load the
   # application under coverage, eager load constants, drop the parent's database
-  # connection before forking, and give each child its own database.
+  # connection before forking, give each child its own database, and clean up
+  # after the last child.
   #
   # The script is plain Ruby evaluated against one Setup value:
   #
@@ -14,13 +15,14 @@ module Mutation
   #     after_boot     { Rails.application.eager_load! }
   #     before_fork    { ActiveRecord::Base.connection_pool.disconnect! }
   #     child_start    { |index| Database.clone_for(index) }
+  #     after_campaign { Database.drop_clones }
   #   end
   #
   # Every hook is optional and every hook list runs in registration order. Using
   # `instance_exec` keeps the DSL to methods on this object, so a project cannot
   # reach the runner from its setup file.
   class Setup
-    EVENTS = %i[after_boot before_fork child_start before_test_run].freeze
+    EVENTS = %i[after_boot before_fork child_start before_test_run after_campaign].freeze
 
     # The coverage pass and the runner both preload the suite, so the two
     # "once per campaign" hooks would otherwise fire twice.
