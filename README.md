@@ -217,9 +217,10 @@ These are real and deliberate; know them before trusting a score.
   `require` or `autoload`: the file's first load. A retry that still cannot load is `skipped`
   with the reason. Neither is scored. `--isolation=process` uses the same first-load loader for
   every mutant.
-- **Per-test coverage is collected by running the suite once, instrumented, and the weak pass
-  runs it once more.** On a large suite those passes are the dominant fixed cost of a campaign.
-  Neither is cached. `--no-weak` removes the second pass.
+- **Per-test coverage is collected by running the suite once, instrumented. The weak pass then
+  runs only the tests that can reach a probe.** On a large suite the first pass dominates the
+  fixed cost of a campaign, and the tests a probe needs run twice. Neither pass is cached.
+  `--no-weak` removes the second pass.
 - **Weak probes only decide pure expressions.** Arithmetic, relational and logical nodes over
   literals, locals, ivars, `self` and constants. A method call anywhere in the expression keeps
   its mutant on the real-run path, so a missing `not_infected` label is not a correctness bug.

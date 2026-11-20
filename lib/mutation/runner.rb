@@ -13,6 +13,7 @@ require_relative "errors"
 require_relative "fingerprint"
 require_relative "load_hazard"
 require_relative "result"
+require_relative "test_selection"
 require_relative "source"
 
 module Mutation
@@ -62,6 +63,7 @@ module Mutation
       @analyzer = analyzer
       @adapter = adapter
       @coverage_map = coverage_map || CoverageMap.empty
+      @selection = TestSelection.new(@coverage_map)
       @weak = weak
       @jobs = [Integer(config.respond_to?(:jobs) ? (config.jobs || 1) : 1), 1].max
       @timeout = Float(config.respond_to?(:timeout) ? (config.timeout || 5.0) : 5.0)
@@ -72,7 +74,6 @@ module Mutation
       @halted = false
       @cache = Cache.new(Cache.default_path(config), enabled: !Cache.disabled?)
       @source_cache = {}
-      @statement_spans = {}
       @all_test_ids = nil
       @temp_dir = nil
       @fingerprint = nil
@@ -177,26 +178,7 @@ module Mutation
         return all_test_ids
       end
 
-      tests = @coverage_map.ordered_tests_for_span(mutant.path, mutant.line,
-                                                   source.line_of(mutant.end_offset - 1))
-      return tests unless tests.empty?
-
-      # Ruby's line coverage is coarse inside one expression: a five-line `a && b && c`
-      # chain is reported as its first and last line only. Fall back to the statement the
-      # mutant belongs to, or a mutant in a multi-line expression is silently dropped from
-      # the score as uncovered.
-      span = statement_span(source, mutant)
-      return [] if span.nil?
-
-      @coverage_map.ordered_tests_for_span(mutant.path, source.line_of(span[0]),
-                                           source.line_of(span[1] - 1))
-    end
-
-    # Maps [start_offset, end_offset] of every node to the span of the statement that
-    # contains it. Built once per file with one AST walk.
-    def statement_span(source, mutant)
-      spans = (@statement_spans[source.rel_path] ||= Source.statement_spans(source.ast))
-      spans[[mutant.start_offset, mutant.end_offset]]
+      @selection.tests_for(mutant, source)
     end
 
     # Memoised per file: the parse is 50us and a campaign asks for the same file once

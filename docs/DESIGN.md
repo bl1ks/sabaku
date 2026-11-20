@@ -164,6 +164,16 @@ The coverage sampler owns per-test coverage collection; `CoverageMap` is a plain
 answers "which tests execute this file and line".
 
 ```ruby
+# lib/mutation/test_selection.rb
+TestSelection.new(coverage_map)
+TestSelection#tests_for(mutant, source)   -> Array[String], ordered by reach then id
+```
+
+The runner and the coverage sampler both ask `TestSelection` which tests a mutant needs, so the
+weak pass runs exactly the union of those answers. A second copy of the rule would drift, and a
+test the runner picks but the probe pass skipped would turn a decided mutant into `:unknown`.
+
+```ruby
 # lib/mutation/adapters/minitest.rb
 MinitestAdapter.new     -> adapter
 adapter.preload!        -> void          # loads the project's tests into this process
@@ -217,14 +227,16 @@ reported separately and never enter the denominator.
    `after_boot` hook. Coverage must start before the project loads.
 2. Every test runs once, in process, and its newly-hit target lines are recorded in a
    `CoverageMap`. A red suite fails the run before any mutant is spent (unless `--no-baseline`).
-3. The weak pass repeats the test loop with probe-instrumented copies of the target files loaded
-   over the originals. `Weak.test_id` is set to the running test so every probe attributes its
-   evaluation. A probe that cannot be installed (a file whose reload raises, a mutant without
-   pure operands) simply leaves its mutant `:unknown`, which runs normally.
+3. The weak pass reloads probe-instrumented copies of the target files over the originals, then
+   runs only the tests the runner can select for a probe-eligible mutant. `Weak.test_id` is set
+   to the running test so every probe attributes its evaluation. A probe that cannot be installed
+   (a file whose reload raises, a mutant without pure operands) simply leaves its mutant
+   `:unknown`, which runs normally.
 
 The passes are separate because code compiled by `eval` is not instrumented: doing both at once
-would erase the probed files' line counts. The price is one extra run of the suite, paid only when
-at least one mutant is probe-eligible. `--no-weak` skips the pass and the classification.
+would erase the probed files' line counts. The price is one extra run of the tests that can reach
+a probe, paid only when at least one mutant is probe-eligible. `--no-weak` skips the pass and the
+classification.
 
 The probe text is evaluated with the original absolute path, so `__FILE__` and `require_relative`
 behave as they do in the file. The file body does re-execute, which is the same surface the cache

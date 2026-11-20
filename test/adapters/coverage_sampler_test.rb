@@ -88,6 +88,66 @@ class CoverageSamplerTest < Minitest::Test
     end
   end
 
+  # The weak pass is only worth its cost for tests that can see a probe. A test
+  # that never reaches a weak-eligible expression must not be run again: the
+  # campaign already paid for the whole suite once. The expectation comes from
+  # the coverage map (which tests execute a weak-eligible mutant's span), not
+  # from TestSelection's own answer for the same mutants.
+  def test_the_weak_pass_runs_only_the_tests_that_can_see_a_probe
+    in_project("weak_scope_minitest", glob: "test/*_case.rb") do
+      source = Mutation::Source.new("lib/rates.rb", File.read("lib/rates.rb"))
+      config = config_for
+      mutants = Mutation::Analyzer.new([source], config).mutants
+      eligible = Mutation::Weak.eligible(mutants)
+
+      adapter_class = Class.new(Mutation::Adapters::MinitestAdapter) do
+        attr_reader :runs
+
+        def run(ids)
+          (@runs ||= []) << Array(ids).map(&:to_s)
+          super
+        end
+      end
+      adapter = adapter_class.new
+      sampler = Mutation::Adapters::CoverageSampler.new(
+        config, adapter, [source], mutants: mutants
+      )
+      map = sampler.call
+      weak = sampler.weak_report
+
+      refute_nil weak
+      suite = adapter.test_ids
+      assert_equal suite, adapter.runs.first(suite.size).map(&:first),
+                   "the coverage pass measures every test once"
+      weak_runs = adapter.runs.drop(suite.size).map(&:first)
+
+      hits = map.to_h.fetch("tests")
+      expected = suite.select do |test_id|
+        eligible.any? do |mutant|
+          span = mutant.line..source.line_of(mutant.end_offset - 1)
+          (hits[test_id] || {}).fetch("lib/rates.rb", []).any? { |line| span.cover?(line) }
+        end
+      end
+
+      # The fixture has to exercise the promise: `test_scaled` reaches the only
+      # weak-eligible expression, and `test_label` covers a method with none.
+      assert_equal ["RatesTest#test_scaled"], expected
+      assert_equal expected, weak_runs
+
+      covered = eligible.reject do |mutant|
+        map.tests_for_span(mutant.path, mutant.line,
+                           source.line_of(mutant.end_offset - 1)).empty?
+      end
+      refute_empty covered
+      covered.each do |mutant|
+        selected = map.tests_for_span(mutant.path, mutant.line,
+                                      source.line_of(mutant.end_offset - 1))
+        refute_equal :unknown, weak.decision(mutant, selected),
+                     "the scoped weak pass must still decide #{mutant.path}:#{mutant.line}"
+      end
+    end
+  end
+
   # Ruby instruments a file when it is compiled. If an embedding process (or an
   # earlier preload) already required the source before Coverage.start,
   # the sampler must re-load that target under coverage instead of returning an

@@ -2,6 +2,7 @@
 
 require_relative "../boot"
 require_relative "../coverage_map"
+require_relative "../test_selection"
 require_relative "../source"
 require_relative "../weak"
 
@@ -83,7 +84,7 @@ module Mutation
         end
 
         verify_baseline!(failures)
-        @weak_report = collect_weak(targets)
+        @weak_report = collect_weak(targets, map)
         map
       ensure
         Weak.test_id = nil
@@ -96,15 +97,18 @@ module Mutation
       # not instrumented: doing both in one pass would erase the probed files' line
       # counts. The price is one extra run of the selected suites, paid only when there
       # are mutants a probe can decide.
-      def collect_weak(targets)
+      def collect_weak(targets, map)
         return nil unless @weak_enabled && @mutants
 
         eligible = Weak.eligible(@mutants)
         return nil if eligible.empty?
 
+        ids = weak_test_ids(eligible, map)
+        return nil if ids.empty?
+
         Weak.reset!
         install_probes!(targets, eligible)
-        @adapter.test_ids.each do |test_id|
+        ids.each do |test_id|
           Weak.test_id = test_id
           begin
             @adapter.run([test_id])
@@ -115,6 +119,21 @@ module Mutation
         Weak.report
       ensure
         Weak.test_id = nil
+      end
+
+      # A probe can only decide a mutant when every test the runner would select for
+      # it runs under the probe. The union of those selections is the whole job.
+      def weak_test_ids(eligible, map)
+        selection = TestSelection.new(map)
+        by_path = @sources.to_h { |source| [source.rel_path, source] }
+        wanted = {}
+        eligible.each do |mutant|
+          source = by_path[mutant.path]
+          next if source.nil?
+
+          selection.tests_for(mutant, source).each { |id| wanted[id] = true }
+        end
+        @adapter.test_ids.select { |id| wanted[id] }
       end
 
       # Methods are redefined in place, so a test that calls them afterwards runs the
