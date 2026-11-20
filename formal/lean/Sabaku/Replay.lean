@@ -1,11 +1,13 @@
 /-
-  A second implementation of the two byte-level and numeric operations the campaign relies on:
-  `Mutant#splice` and `Report#score`. `formal/replay/emit.rb` writes one tab separated record per
-  case, and this program decides each one independently of Ruby. A mismatch is a failure.
+  A second implementation of the operations the campaign relies on: `Mutant#splice`,
+  `Report#score` and `KillMatrix#verdicts`. `formal/replay/emit.rb` writes one tab separated
+  record per case, and this program decides each one independently of Ruby. A mismatch is a
+  failure.
 -/
 
 import Sabaku.Basic
 import Sabaku.Score
+import Sabaku.KillMatrix
 
 open Sabaku
 
@@ -58,10 +60,60 @@ def checkScore (killed survived timeout uncovered err want : String) : IO Bool :
       IO.println s!"MISMATCH score {killed} {survived} {timeout}: unparseable record"
       return false
 
+def parseNats (s : String) : Option (List Nat) :=
+  if s.isEmpty then some [] else (s.splitOn ",").mapM String.toNat?
+
+def parseFields (s : String) : List String :=
+  if s.isEmpty then [] else s.splitOn ";"
+
+/-- "0,1/1" -> tested [0, 1], killers [1]. -/
+def parseRow (s : String) : Option (List Nat × List Nat) :=
+  match s.splitOn "/" with
+  | [tested, killers] => do pure (← parseNats tested, ← parseNats killers)
+  | _ => none
+
+def kindName : KillMatrix.Kind → String
+  | .kept => "kept"
+  | .subsumed => "subsumed"
+  | .duplicate => "duplicate"
+  | .zero => "zero"
+  | .idle => "idle"
+
+/-- One `kind,by,unique` per test, in id order, as `KillMatrix#verdicts` lists them. -/
+def matrixTable (n : Nat) (rows : List (List Nat × List Nat)) (inc : List (List Nat)) : String :=
+  let K : Nat → Nat → Bool := fun t m => (rows.getD m ([], [])).2.contains t
+  let ms := List.range rows.length
+  let ts := List.range n
+  let seen := fun t => rows.any (fun r => r.1.contains t) || inc.any (fun r => r.contains t)
+  String.intercalate ";" <| ts.map fun t =>
+    let kind := KillMatrix.verdict K ms ts (seen t) t
+    let named := match kind, KillMatrix.witness K ms ts t with
+      | .subsumed, some b => toString b
+      | .duplicate, some b => toString b
+      | _, _ => "-"
+    let uniq := (ms.filter (KillMatrix.unique K ts t)).length
+    s!"{kindName kind},{named},{uniq}"
+
+def checkMatrix (n rowsField incField want : String) : IO Bool := do
+  match String.toNat? n, (parseFields rowsField).mapM parseRow,
+        (parseFields incField).mapM parseNats with
+  | some n, some rows, some inc => do
+      let got := matrixTable n rows inc
+      if got = want then
+        IO.println s!"ok matrix {n} {rows.length}"
+        return true
+      else
+        IO.println s!"MISMATCH matrix [{rowsField}] [{incField}]: got [{got}] want [{want}]"
+        return false
+  | _, _, _ => do
+      IO.println s!"MISMATCH matrix: unparseable record"
+      return false
+
 def handle (line : String) : IO Bool :=
   match line.splitOn "\t" with
   | ["splice", s, e, txt, repl, want] => checkSplice s e txt repl want
   | ["score", k, s, t, u, e, want] => checkScore k s t u e want
+  | ["matrix", n, rows, inc, want] => checkMatrix n rows inc want
   | _ => do
       IO.println s!"MISMATCH: unrecognised record [{line}]"
       return false

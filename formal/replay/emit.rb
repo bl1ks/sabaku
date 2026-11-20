@@ -2,7 +2,7 @@
 
 # Deterministic facts for the formal replay.
 #
-# Writes formal/out/replay.tsv (splice and score records for `lake exe replay`) and
+# Writes formal/out/replay.tsv (splice, score and kill-matrix records for `lake exe replay`) and
 # formal/out/mutants.tsv (the mutant list, for `formal/replay/check.rb`). The analysis runs twice
 # and the script refuses to emit anything unless both runs agree.
 
@@ -28,8 +28,48 @@ CONFIG = Sabaku::Config.default(
 )
 
 FakeResult = Struct.new(:status, :mutant)
+FakeMutant = Struct.new(:id)
 
 def bytes(text) = text.bytes.join(",")
+
+# Small kill graphs with equal rows, empty rows and incomplete rows, and the verdict table
+# `Sabaku::KillMatrix` draws from each. Tests are named so that their sorted order is their index,
+# which is how Lean names them.
+def matrix_records(count)
+  random = Random.new(7)
+  Array.new(count) do
+    tests = Array.new(random.rand(1..6)) { |index| "T#{index}" }
+    rows = Array.new(random.rand(0..8)) do
+      tested = tests.select { random.rand < 0.7 }
+      tested = [tests.sample(random: random)] if tested.empty?
+      [tested, tested.select { random.rand < 0.4 }]
+    end
+    rows << rows.first if rows.any? && random.rand < 0.4
+    incomplete = Array.new(random.rand(0..2)) { tests.select { random.rand < 0.5 } }.reject(&:empty?)
+
+    results = rows.each_with_index.map do |(tested, killers), index|
+      status = killers.empty? ? :survived : :killed
+      Sabaku::Result.new(mutant: FakeMutant.new("m#{index}"), status: status, failed_test: killers.first,
+                         kills: Sabaku::Kills.new(tested: tested, killers: killers))
+    end
+    selected = {}
+    incomplete.each_with_index do |tested, index|
+      id = "i#{index}"
+      selected[id] = tested
+      results << Sabaku::Result.new(mutant: FakeMutant.new(id), status: :killed, failed_test: tested.first)
+    end
+    matrix = Sabaku::KillMatrix.from(results, universe: tests, selected: selected)
+
+    index = ->(list) { list.map { |test| tests.index(test) }.join(",") }
+    want = matrix.verdicts.map do |verdict|
+      [verdict.kind, verdict.by ? tests.index(verdict.by) : "-", verdict.unique].join(",")
+    end
+    ["matrix", tests.size,
+     rows.map { |tested, killers| "#{index.(tested)}/#{index.(killers)}" }.join(";"),
+     incomplete.map { |tested| index.(tested) }.join(";"),
+     want.join(";")].join("\t")
+  end
+end
 
 def fake(status) = FakeResult.new(status, nil)
 
@@ -70,6 +110,8 @@ File.open(File.join(OUT, "replay.tsv"), "w") do |out|
       end
     end
   end
+
+  matrix_records(200).each { |record| out.puts record }
 end
 
 File.open(File.join(OUT, "mutants.tsv"), "w") do |out|
