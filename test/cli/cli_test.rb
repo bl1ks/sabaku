@@ -145,6 +145,97 @@ class CLITest < Minitest::Test
     end
   end
 
+  # A survivor the probe pass proved costs no child, so --fail-fast has to stop before the
+  # first fork. Before this, a not_infected survivor was known before execution started and
+  # the campaign still ran every remaining mutant, which made the flag a no-op on exactly
+  # the suites the weak pass is good at.
+  def test_fail_fast_stops_at_a_survivor_the_probe_pass_proved
+    in_project do
+      # Its own file and class: two campaigns in one process share $LOADED_FEATURES, so a
+      # second test reusing "subject" would silently keep the previous project's class.
+      File.write("lib/tier_gate.rb", <<~RUBY)
+        class TierGate
+          def tier(weight)
+            weight > 10 ? 50 : 20
+          end
+
+          def add(a, b)
+            a + b
+          end
+        end
+      RUBY
+      FileUtils.mkdir_p("test")
+      File.write("test/tier_gate_test.rb", <<~RUBY)
+        require "minitest/autorun"
+        require "tier_gate"
+
+        class TierGateTest < Minitest::Test
+          def test_the_light_tier
+            assert_equal 20, TierGate.new.tier(2)
+          end
+
+          def test_add
+            assert_equal 5, TierGate.new.add(2, 3)
+          end
+        end
+      RUBY
+
+      code, out, err = start(["run", "lib/tier_gate.rb", "--fail-fast", "--jobs=1", "--report=json"])
+      payload = JSON.parse(out.lines.last)
+
+      assert_equal 0, code, err
+      assert_equal 1, payload["survived"], "the tier boundary is the survivor"
+      assert_equal 0, payload["killed"], "the killable mutants must not run after the halt"
+      assert_operator payload["skipped"], :>=, 1
+      halted = payload["results"].find { |result| result["status"] == "skipped" }
+      assert_match(/--fail-fast/, halted["message"].to_s)
+    end
+  end
+
+  # Ruby's line coverage marks an endless method's line while the class body runs and never
+  # increments it on a call, so a per-test diff attributes it to no test. That used to make
+  # the mutant `uncovered`, which drops it from the score without ever running it. The line
+  # cannot be attributed, so the runner must run the suite for it instead of grading itself
+  # on nothing.
+  def test_an_endless_method_line_is_measured_instead_of_uncovered
+    in_project do
+      File.write("lib/endless.rb", <<~RUBY)
+        class Endless
+          def value = 7
+        end
+
+        class Plain
+          def unused
+            41
+          end
+        end
+      RUBY
+      FileUtils.mkdir_p("test")
+      File.write("test/endless_test.rb", <<~RUBY)
+        require "minitest/autorun"
+        require "endless"
+
+        class EndlessTest < Minitest::Test
+          def test_value
+            assert_equal 7, Endless.new.value
+          end
+        end
+      RUBY
+
+      code, out, err = start(["run", "lib/endless.rb", "--per-line=all", "--report=json"])
+      payload = JSON.parse(out.lines.last)
+      by_line = payload["results"].group_by { |result| result["mutant"]["line"] }
+
+      assert_equal 0, code, err
+      endless = by_line.fetch(2, [])
+      plain = by_line.fetch(7, [])
+      refute_empty endless, "the endless method must still yield mutants"
+      assert_equal ["killed"], endless.map { |result| result["status"] }.uniq
+      refute_empty plain, "the untested method must still yield a mutant"
+      assert_equal ["uncovered"], plain.map { |result| result["status"] }.uniq
+    end
+  end
+
   def test_a_campaign_where_no_mutant_can_run_exits_2
     in_project do
       FileUtils.mkdir_p("test")

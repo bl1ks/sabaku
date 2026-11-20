@@ -214,6 +214,13 @@ candidate --(covering tests)--> queued --> running --(child exits 0)--> survived
 candidate --(--fail-fast saw a survivor first)--> skipped
 ```
 
+The probe pass decides some survivors before any child runs, so `--fail-fast` has two halting
+points, not one: a survivor the dry run proved stops the campaign before the first fork, and a
+survivor a child produced stops it before the next fork. Both leave the mutants that were never
+scheduled `skipped`, and both keep the verdicts the dry run already paid for: a cache hit or a
+`not_infected` decision behind the first survivor is still reported, because dropping it would
+throw away evidence already bought.
+
 `score` = killed / (killed + survived + timeout). A survivor keeps its full weight whether a test
 noticed the change (`:not_detected`) or no test ever saw one (`:not_infected`); the report splits
 them so the number and the explanation cannot disagree. `uncovered`, `error` and `skipped` are
@@ -232,6 +239,12 @@ reported separately and never enter the denominator.
    to the running test so every probe attributes its evaluation. A probe that cannot be installed
    (a file whose reload raises, a mutant without pure operands) simply leaves its mutant
    `:unknown`, which runs normally.
+
+One line kind has no per-test owner. Ruby marks an endless method's line (`def m = expr`) when the
+class body runs and never increments it on a call, so the delta after a test is zero even though
+every call executed it. `TestSelection#unattributable?` recognises that line, and the runner runs
+every test for mutants on it. Naming it `:uncovered` would be cheaper and would drop real mutants
+from the score, which is the one lie this engine cannot tell.
 
 The passes are separate because code compiled by `eval` is not instrumented: doing both at once
 would erase the probed files' line counts. The price is one extra run of the tests that can reach

@@ -84,7 +84,7 @@ tier has no test at all: the suite only exercises the ten-item tier.
 | `--per-line=N\|all` | `1` | mutants kept per line; `all` keeps every candidate |
 | `--diff=PATH` | off | JSON `{"path" => [lines]}` allowlist |
 | `--since=REV` | off | only mutate the lines that changed since a git revision |
-| `--fail-fast` | off | stop at the first survivor and report the rest as `skipped` |
+| `--fail-fast` | off | stop at the first surviving mutant, probe-pass survivors included; the rest are `skipped` |
 | `--[no-]baseline` | on | refuse to score a suite that is not green, and re-check each kill against a second load of the file |
 | `--env=KEY=VALUE` | none | set an ENV entry before the suite loads (repeatable) |
 | `--require=PATH` | none | require after coverage starts, before the tests (repeatable) |
@@ -226,6 +226,10 @@ These are real and deliberate; know them before trusting a score.
   its mutant on the real-run path, so a missing `not_infected` label is not a correctness bug.
 - **Lines executed only at load time** are not attributed to any test, so a mutant whose only
   execution is class-body code is `uncovered`.
+- **An endless method (`def m = expr`) never reports a per-test hit** on its own line: Ruby marks
+  that line while the class body runs, and a call does not increment it again. Those mutants are
+  not `uncovered`; they run every test, because no counter can say which test called the method
+  and calling one `uncovered` would score a mutant nobody measured.
 - **`uncovered`, `error`, and `skipped` never enter the score.** They are reported separately so a
   file with no coverage, or a file no child could measure, cannot inflate the number.
 

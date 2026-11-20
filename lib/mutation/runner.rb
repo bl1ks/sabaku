@@ -87,6 +87,7 @@ module Mutation
       Boot.env(@config)
       list = Array(mutants)
       @entries = list.each_with_index.map { |mutant, index| prepare_entry(mutant, index) }
+      halt_after_prepared_survivor
       pending = @entries.reject(&:done?)
       execute(pending) unless pending.empty?
       persist_results
@@ -96,6 +97,28 @@ module Mutation
     end
 
     private
+
+    # --fail-fast stops at the first survivor. A survivor the probe pass proved needs no
+    # child, so the campaign can stop before the first fork instead of after it. Entries
+    # the dry run already decided keep their verdict: they cost nothing, and dropping them
+    # would discard evidence the user has already paid for.
+    def halt_after_prepared_survivor
+      return unless @fail_fast
+
+      first = @entries.index { |entry| entry.result&.survived? }
+      return if first.nil?
+
+      @entries.drop(first + 1).each do |entry|
+        next if entry.done?
+
+        entry.result = Result.new(
+          mutant: entry.mutant,
+          status: :skipped,
+          duration: 0.0,
+          message: "not run: --fail-fast stopped at the first survivor"
+        )
+      end
+    end
 
     # ---- preparation: selection + cache -------------------------------------
 
@@ -178,7 +201,15 @@ module Mutation
         return all_test_ids
       end
 
-      @selection.tests_for(mutant, source)
+      selected = @selection.tests_for(mutant, source)
+      return selected unless selected.empty?
+      # The line is real and the suite executes it, but Ruby's counters cannot say
+      # which test did (an endless method marks its own line at definition time and
+      # never again). Every test is the only honest answer; `uncovered` would score a
+      # mutant nobody measured.
+      return all_test_ids if @selection.unattributable?(mutant, source)
+
+      selected
     end
 
     # Memoised per file: the parse is 50us and a campaign asks for the same file once

@@ -91,6 +91,12 @@ Checked invariants:
   first-load surface.
 - `INV_weak_has_no_child`: a mutant the weak pass decided never starts a child.
 
+The halt has two triggers in the code and one in the model. `--fail-fast` also stops the campaign
+at a survivor the probe pass proved, before the first child starts. The model leaves `halted` free
+during preparation, which admits that trace and every trace where it does not halt, so a schedule
+the code cannot produce cannot hide a violation; the fault variants therefore exercise the
+child-side halt only.
+
 Two checks sit around the pool and are modelled only where they can change a result. The baseline
 runs before any mutant exists, so it either lets the campaign start or ends it with no result at
 all. The kill check rewrites a reported `killed` to `error`. The attribution is not a rewrite: a
