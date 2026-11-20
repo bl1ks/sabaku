@@ -185,7 +185,9 @@ module Sabaku
       # -> Failure, or nil when the test passed or skipped.
       def run_one(id)
         pair = @id_to_pair[id]
-        return Failure.new(error: Sabaku::Error.new("unknown minitest test id #{id.inspect}")) unless pair
+        unless pair
+          return Failure.new(error: Sabaku::Error.new("unknown minitest test id #{id.inspect}"))
+        end
 
         klass, method_name = pair
         # A project may override `run` (Active Support's isolation module does,

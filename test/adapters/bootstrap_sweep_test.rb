@@ -13,7 +13,7 @@ class BootstrapSweepTest < Minitest::Test
     root = fixture_dir("matrix_minitest")
     Dir.mktmpdir("sabaku-sweep") do |dir|
       mutated = File.join(dir, "mutant.rb")
-      File.write(mutated, File.read(File.join(root, "lib/matrix_calc.rb")).sub("a + b", "a - b"))
+      File.write(mutated, File.read(File.join(root, "lib/matrix_calc.rb")).sub("a + b", "a * b"))
       reader, writer = IO.pipe
       env = {
         "SABAKU_ROOT" => root,

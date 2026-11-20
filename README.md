@@ -91,6 +91,7 @@ tier has no test at all: the suite only exercises the ten-item tier.
 | `--setup=PATH` | none | Ruby file with boot hooks for Rails and friends |
 | `--[no-]coverage` | on | test selection; `--no-coverage` runs the whole suite per mutant |
 | `--[no-]weak` | on | probe the dry run and decide uninfected survivors without running them |
+| `--[no-]kill-matrix` | off | run every selected test against each killed mutant and report redundant tests; the score does not change |
 | `--isolation=fork\|process` | `fork` | reload a preloaded suite, or boot a fresh process |
 | `--report=terminal\|json\|quiet` | `terminal` | output |
 | `--output=PATH` | none | write the JSON report |
@@ -101,6 +102,34 @@ tier has no test at all: the suite only exercises the ten-item tier.
 Run it from the project root. `lib` and `test` are put on `$LOAD_PATH`, and test files
 are discovered with `test/**/*_test.rb`. Set `SABAKU_TEST_GLOB`
 to override the pattern. Set `SABAKU_NO_CACHE=1` to ignore the result cache.
+
+### Kill matrix
+
+A result names the first test that killed a mutant. `--kill-matrix` finds every test that kills
+it, and from that, which tests add nothing. After the normal run, each killed mutant gets a second
+child that runs the selected tests the first child never reached. The first failure plus that
+tail is the mutant's full row. A survivor's row is already known: every selected test passed.
+Each test gets one verdict:
+
+| Verdict | Meaning |
+| --- | --- |
+| `kept` | no other test kills a superset of its kills |
+| `subsumed` | another test kills everything it kills, and more; `by` names the strongest such test |
+| `duplicate` | another test kills exactly the same mutants and sorts first; one test per such group is `kept` |
+| `zero` | selected for a scored mutant and killed none: it runs the code and asserts too little |
+| `idle` | never selected: it covers no mutated line |
+
+Removing every `subsumed` and `duplicate` test keeps every kill, so the score would not move.
+The kept tests are a cover, not a minimum one. The terminal lists zero-kill tests, redundant
+tests and the tests with the most unique kills. The JSON report adds a `kill_matrix` section,
+with tests sorted by id, and a `kills` row on each result.
+
+The flag never changes a status, the score or the exit code. A sweep that times out, crashes,
+or names a killer that also fails with the file reloaded and no mutation leaves the mutant's
+status alone and gives it no row. The report counts these incomplete rows and marks every test
+one of them selected with `?`, because finishing that row could still change the test's
+verdict. A verdict without `?` cannot be changed by the incomplete rows. Rows are cached, and a
+cache warmed without the flag only pays for the tails.
 
 A mutant id is `sha1(path, scope, AST path, operator, replacement)`, so moving a method down a
 file keeps its cached verdict. Editing the method changes the id of every mutant inside it, which
@@ -230,6 +259,9 @@ These are real and deliberate; know them before trusting a score.
   that line while the class body runs, and a call does not increment it again. Those mutants are
   not `uncovered`; they run every test, because no counter can say which test called the method
   and calling one `uncovered` would score a mutant nobody measured.
+- **The kill matrix assumes a test's verdict does not depend on the tests before it.** The sweep
+  runs the tail without the prefix that already passed, so a suite with order-dependent tests
+  can report a different killer set than one full run would. The status is never affected.
 - **`uncovered`, `error`, and `skipped` never enter the score.** They are reported separately so a
   file with no coverage, or a file no child could measure, cannot inflate the number.
 

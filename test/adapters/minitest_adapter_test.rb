@@ -70,7 +70,7 @@ class MinitestAdapterTest < Minitest::Test
   end
 
   def test_sweep_reports_every_failing_id_in_order_and_run_still_stops_at_the_first
-    with_matrix_add(->(a, b) { a - b }) do |adapter|
+    with_matrix_add(->(a, b) { a * b }) do |adapter|
       ids = %w[MatrixTest#test_add_weak MatrixTest#test_sub_only MatrixTest#test_add_strong]
 
       assert_equal %w[MatrixTest#test_add_weak MatrixTest#test_add_strong],

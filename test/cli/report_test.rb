@@ -106,6 +106,75 @@ class ReportTest < Minitest::Test
     assert_equal({ "not_detected" => 1, "not_infected" => 1 }, payload["survived_reasons"])
   end
 
+  MatrixMutant = Struct.new(:id, :path, :line, :column, :operator, :node_kind, :original,
+                            :replacement, :description, keyword_init: true)
+
+  def scored(id, status, killers: nil, tested: nil)
+    mutant = MatrixMutant.new(id: id, path: "lib/calc.rb", line: 1, column: 0, operator: :aor,
+                              node_kind: "CallNode", original: "a + b", replacement: "a - b",
+                              description: "AOR: a + b -> a - b")
+    kills = tested && Sabaku::Kills.new(tested: tested, killers: killers || [])
+    Sabaku::Result.new(mutant: mutant, status: status, failed_test: killers&.min, kills: kills)
+  end
+
+  def matrix_report
+    results = [
+      scored("m1", :killed, killers: %w[C#strong C#twin C#weak], tested: %w[C#strong C#twin C#weak]),
+      scored("m2", :killed, killers: %w[C#strong C#twin], tested: %w[C#strong C#twin C#weak]),
+      scored("m3", :survived, tested: %w[C#smoke]),
+      scored("m4", :killed, killers: %w[C#edge])
+    ]
+    matrix = Sabaku::KillMatrix.from(results, universe: %w[C#idle],
+                                              selected: { "m4" => %w[C#edge C#weak] })
+    report(results).class.new(results, Sabaku::Config.default, kill_matrix: matrix)
+  end
+
+  def test_without_a_matrix_the_report_has_no_section_and_no_rows
+    doc = report([result(:killed), result(:survived)])
+
+    refute_includes doc.to_terminal, "kill matrix"
+    refute doc.to_h.key?(:kill_matrix)
+    assert(doc.to_h[:results].none? { |row| row.key?(:kills) })
+  end
+
+  def test_terminal_names_zero_redundant_and_unique_tests
+    text = matrix_report.to_terminal
+
+    assert_includes text, "kill matrix: 3 of 4 killed+survived mutants have a complete row"
+    assert_includes text, "1 incomplete"
+    assert_includes text, "tests 6: kept 1, subsumed 1, duplicate 1, zero kills 2, idle 1"
+    assert_match(/C#smoke\s+ran against 1 mutant, killed none/, text)
+    assert_match(/C#idle\s+never selected/, text)
+    assert_match(/C#edge\s+\?\s+selected only for mutants without a complete row/, text)
+    assert_match(/C#twin\s+same 2 kills as C#strong/, text)
+    assert_match(/C#weak\s+\? 1 kill, all also killed by C#strong/, text)
+    assert_match(/top unique killers:\n\s+C#strong\s+unique 0  kills 2/, text)
+  end
+
+  def test_json_lists_tests_by_id_with_rows_on_results
+    payload = JSON.parse(matrix_report.to_json)
+    matrix = payload["kill_matrix"]
+
+    assert_equal 3, matrix["rows"]
+    assert_equal [{ "mutant" => "m4", "status" => "killed", "tested" => 2 }], matrix["incomplete"]
+    assert_equal %w[C#edge C#idle C#smoke C#strong C#twin C#weak], matrix["tests"].map { |t| t["id"] }
+    weak = matrix["tests"].find { |t| t["id"] == "C#weak" }
+    assert_equal({ "id" => "C#weak", "verdict" => "subsumed", "kills" => 1, "unique" => 0,
+                   "tested" => 2, "by" => "C#strong", "provisional" => true }, weak)
+    assert_equal({ "kept" => 1, "subsumed" => 1, "duplicate" => 1, "zero" => 2, "idle" => 1,
+                   "provisional" => 2 }, matrix["summary"])
+    assert_equal %w[C#strong C#twin C#weak], payload["results"].first["kills"]["killers"]
+    assert_nil payload["results"].last["kills"]
+  end
+
+  def test_matrix_lists_are_capped
+    results = Array.new(25) { |index| scored("m#{index}", :survived, tested: ["Z#t#{index}"]) }
+    matrix = Sabaku::KillMatrix.from(results, universe: [])
+    text = report(results).class.new(results, Sabaku::Config.default, kill_matrix: matrix).to_terminal
+
+    assert_includes text, "... and 5 more"
+  end
+
   def test_per_file_groups_and_rates
     results = [result(:killed, path: "lib/a.rb"), result(:survived, path: "lib/a.rb"),
                result(:killed, path: "lib/b.rb")]

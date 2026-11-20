@@ -81,10 +81,12 @@ module Sabaku
       else
         coverage_map, weak = coverage
       end
-      results = Runner.new(cfg, analyzer: analyzer, adapter: adapter,
-                                coverage_map: coverage_map, weak: weak).call(mutants)
+      runner = Runner.new(cfg, analyzer: analyzer, adapter: adapter,
+                               coverage_map: coverage_map, weak: weak)
+      results = runner.call(mutants)
 
-      report = Report.new(results, cfg)
+      matrix = kill_matrix(cfg, results, runner, coverage_map, adapter)
+      report = Report.new(results, cfg, kill_matrix: matrix)
       emit(report, cfg)
       errored = report.counts[:error]
       if errored.positive?
@@ -102,6 +104,15 @@ module Sabaku
       report.score_pct < threshold ? EXIT_BELOW_SCORE : EXIT_OK
     ensure
       finish_campaign(cfg) if cfg
+    end
+
+    # The coverage pass ran every test, so its ids name the tests no mutant selected. The
+    # matrix is advice, so it never changes the exit code.
+    def kill_matrix(cfg, results, runner, coverage_map, adapter)
+      return nil unless cfg.kill_matrix
+
+      universe = coverage_map.test_ids | (adapter.preloaded? ? adapter.test_ids : [])
+      KillMatrix.from(results, universe: universe, selected: runner.selections)
     end
 
     # after_campaign runs once, after the last child, before the process exits.

@@ -20,11 +20,11 @@ class MatrixTest < Minitest::Test
   end
 
   def test_add_weak
-    assert_equal 4, MatrixCalc.add(2, 2)
+    assert_equal 2, MatrixCalc.add(2, 0)
   end
 
   def test_label_smoke
-    MatrixCalc.label(1)
+    MatrixCalc.label
   end
 
   def test_sub_only

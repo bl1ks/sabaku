@@ -9,7 +9,7 @@ class MatrixCalc
     a - b
   end
 
-  def self.label(n)
-    "n=#{n}"
+  def self.label
+    "label"
   end
 end

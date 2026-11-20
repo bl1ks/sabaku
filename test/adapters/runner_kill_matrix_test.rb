@@ -49,8 +49,8 @@ class RunnerKillMatrixTest < Minitest::Test
       sub: build_mutant(root: root, path: "lib/matrix_calc.rb", line: 9,
                         original: "a - b", replacement: "a + b"),
       label: build_mutant(root: root, path: "lib/matrix_calc.rb", line: 13,
-                          original: '"n=#{n}"', replacement: '"n"', operator: :str,
-                          node_kind: "InterpolatedStringNode")
+                          original: '"label"', replacement: '""', operator: :str,
+                          node_kind: "StringNode")
     }
   end
 
@@ -96,7 +96,7 @@ class RunnerKillMatrixTest < Minitest::Test
       %i[fork process].each do |isolation|
         results = run_matrix(kill_matrix: true, isolation: isolation, only: %i[minus sub label])
 
-        assert_equal %w[MatrixTest#test_add_strong MatrixTest#test_add_twin MatrixTest#test_add_weak],
+        assert_equal %w[MatrixTest#test_add_strong MatrixTest#test_add_twin],
                      results[:minus].kills.killers, isolation
         assert_equal ADD, results[:minus].kills.tested
         assert_equal %w[MatrixTest#test_sub_only], results[:sub].kills.killers
@@ -157,7 +157,7 @@ class RunnerKillMatrixTest < Minitest::Test
     second = run_matrix(kill_matrix: true, only: %i[minus sub], record: true)
 
     assert_equal [0.0, 0.0], second.values.map(&:duration), "the pool should be all cache hits"
-    assert_equal 3, second[:minus].kills.killers.size
+    assert_equal 2, second[:minus].kills.killers.size
     assert_equal %w[MatrixTest#test_sub_only], second[:sub].kills.killers
     assert_equal 1, File.readlines(@log).size
 
