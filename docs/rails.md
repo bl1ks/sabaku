@@ -1,18 +1,18 @@
 # Rails
 
-ruby-mutation drives a minitest suite; it has no Rails adapter and no Rails dependency. What a
+sabaku drives a minitest suite; it has no Rails adapter and no Rails dependency. What a
 Rails app needs is a boot sequence and a database that survives a fork, and both are the project's
 job. The `--setup` file is where a project states them.
 
 `fixture/rails_app` is a working example. `test/e2e/rails_test.rb` runs a campaign against it on
 SQLite, and `test/e2e/mysql_test.rb` runs the same app on MySQL. Build the image both use with
-`docker build -f docker/rails.Dockerfile -t ruby-mutation:rails .`, then run `bin/check-rails` to
+`docker build -f docker/rails.Dockerfile -t sabaku:rails .`, then run `bin/check-rails` to
 execute both campaigns against a throwaway `mysql:8.4` container.
 
 ## The setup file
 
 ```ruby
-# mutation.rb
+# sabaku.rb
 env "RAILS_ENV" => "test"
 require_path "./config/environment"
 
@@ -32,7 +32,7 @@ end
 Run it with:
 
 ```sh
-bundle exec mutation run app --setup=mutation.rb --jobs=4 --timeout=5
+bundle exec sabaku run app --setup=sabaku.rb --jobs=4 --timeout=5
 ```
 
 The CLI applies the hooks at fixed points:
@@ -115,7 +115,7 @@ connect the parent to the `postgres` database, then create one copy per child:
 
 ```ruby
 child_start do |_index|
-  name = "mutation_#{Process.pid}"
+  name = "sabaku_#{Process.pid}"
   ActiveRecord::Base.establish_connection(ActiveRecord::Base.connection_db_config.configuration_hash
     .merge(database: "postgres"))
   ActiveRecord::Base.connection.execute("CREATE DATABASE #{name} TEMPLATE #{template_name}")
@@ -132,10 +132,10 @@ Drop the copies from the parent's `after_campaign`, as the MySQL recipe below do
 
 MySQL has no `CREATE DATABASE ... TEMPLATE`, so each child creates an empty database, matches the
 source database's character set and collation, and loads `db/schema.rb` into it.
-`fixture/rails_app/mutation_mysql.rb` is the same file, and `test/e2e/mysql_test.rb` runs it.
+`fixture/rails_app/sabaku_mysql.rb` is the same file, and `test/e2e/mysql_test.rb` runs it.
 
 ```ruby
-# mutation_mysql.rb
+# sabaku_mysql.rb
 env "RAILS_ENV" => "test"
 require_path "./config/environment"
 
@@ -147,7 +147,7 @@ before_fork do
   ActiveRecord::Base.connection_handler.clear_all_connections!
 end
 
-prefix = ENV.fetch("MUTATION_DB_PREFIX") { "mutation_#{Process.pid}" }
+prefix = ENV.fetch("SABAKU_DB_PREFIX") { "sabaku_#{Process.pid}" }
 
 settings = lambda do
   ActiveRecord::Base.connection_db_config.configuration_hash.dup
@@ -183,25 +183,25 @@ before_test_run do
 end
 ```
 
-`MUTATION_DB_PREFIX` is read once in the parent, so every child shares it, and the child database
+`SABAKU_DB_PREFIX` is read once in the parent, so every child shares it, and the child database
 adds the child's pid. A child drops its own name before use, because a reused pid must not inherit
 a stale copy. The cleanup selects the names and filters with `start_with?` in Ruby rather than a
 `LIKE` pattern, where `_` is a wildcard and would match the main test database too.
 
 Transactional fixtures hide the clone: they roll back every test, so a shared database would pass
 as well. The fixture's `test_helper.rb` sets `use_transactional_tests = false` and truncates in a
-`setup` block when `MUTATION_DB=mysql`, and its `config/database.yml` selects the mysql2 branch for
+`setup` block when `SABAKU_DB=mysql`, and its `config/database.yml` selects the mysql2 branch for
 the test environment.
 
 ### Cleanup runs in the parent
 
-Both isolation modes end a child with `Kernel#exit!`, and `bin/mutation` ends the parent the same
+Both isolation modes end a child with `Kernel#exit!`, and `bin/sabaku` ends the parent the same
 way, so an `at_exit` registered by a `--setup` file never runs: not in a child, not after the
 campaign. Teardown belongs in `after_campaign`, which the CLI fires once after the last child; a
 hook that raises is reported on stderr without changing the campaign's exit status. A child killed
 on a timeout cannot clean up after itself, and a campaign that dies before `after_campaign` leaves
 its `<prefix>_*` databases behind. `after_campaign` drops by prefix, so a later run with the same
-`MUTATION_DB_PREFIX` reclaims them, and a child that reuses a pid drops that name before copying.
+`SABAKU_DB_PREFIX` reclaims them, and a child that reuses a pid drops that name before copying.
 With the default pid-based prefix the next run uses a new namespace, so an orphaned set needs a
 manual `DROP DATABASE`.
 

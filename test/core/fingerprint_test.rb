@@ -7,7 +7,7 @@ class FingerprintTest < Minitest::Test
   AdapterDouble = Struct.new(:root, :test_files)
 
   def setup
-    @dir = Dir.mktmpdir("ruby-mutation-fingerprint")
+    @dir = Dir.mktmpdir("sabaku-fingerprint")
     FileUtils.mkdir_p(File.join(@dir, "test"))
     @test = File.join(@dir, "test", "a_test.rb")
     @helper = File.join(@dir, "test", "test_helper.rb")
@@ -23,8 +23,8 @@ class FingerprintTest < Minitest::Test
     AdapterDouble.new(@dir, files.empty? ? [@test] : files)
   end
 
-  def digest(config = Mutation::Config.default, files = [])
-    Mutation::Fingerprint.for(config, adapter(*files)).digest
+  def digest(config = Sabaku::Config.default, files = [])
+    Sabaku::Fingerprint.for(config, adapter(*files)).digest
   end
 
   def test_the_same_campaign_hashes_the_same
@@ -46,49 +46,49 @@ class FingerprintTest < Minitest::Test
   end
 
   def test_isolation_and_timeout_are_part_of_the_digest
-    fork = digest(Mutation::Config.default(isolation: :fork, timeout: 5.0))
-    process = digest(Mutation::Config.default(isolation: :process, timeout: 5.0))
-    impatient = digest(Mutation::Config.default(isolation: :fork, timeout: 0.5))
+    fork = digest(Sabaku::Config.default(isolation: :fork, timeout: 5.0))
+    process = digest(Sabaku::Config.default(isolation: :process, timeout: 5.0))
+    impatient = digest(Sabaku::Config.default(isolation: :fork, timeout: 0.5))
 
     refute_equal fork, process
     refute_equal fork, impatient
   end
 
   def test_env_and_requires_are_part_of_the_digest
-    base = digest(Mutation::Config.default(env: { "A" => "1" }, requires: ["one"]))
-    other_env = digest(Mutation::Config.default(env: { "A" => "2" }, requires: ["one"]))
-    other_require = digest(Mutation::Config.default(env: { "A" => "1" }, requires: ["two"]))
+    base = digest(Sabaku::Config.default(env: { "A" => "1" }, requires: ["one"]))
+    other_env = digest(Sabaku::Config.default(env: { "A" => "2" }, requires: ["one"]))
+    other_require = digest(Sabaku::Config.default(env: { "A" => "1" }, requires: ["two"]))
 
     refute_equal base, other_env
     refute_equal base, other_require
   end
 
   def test_env_order_does_not_change_the_digest
-    one = digest(Mutation::Config.default(env: { "A" => "1", "B" => "2" }))
-    two = digest(Mutation::Config.default(env: { "B" => "2", "A" => "1" }))
+    one = digest(Sabaku::Config.default(env: { "A" => "1", "B" => "2" }))
+    two = digest(Sabaku::Config.default(env: { "B" => "2", "A" => "1" }))
 
     assert_equal one, two
   end
 
   def test_the_setup_file_is_part_of_the_digest
-    path = File.join(@dir, "mutation.rb")
+    path = File.join(@dir, "sabaku.rb")
     File.write(path, "require_path './config/environment'\n")
-    before = digest(Mutation::Config.default(setup_path: path, setup: Mutation.setup(path)))
+    before = digest(Sabaku::Config.default(setup_path: path, setup: Sabaku.setup(path)))
 
     File.write(path, "after_boot { Rails.application.eager_load! }\n")
-    after = digest(Mutation::Config.default(setup_path: path, setup: Mutation.setup(path)))
+    after = digest(Sabaku::Config.default(setup_path: path, setup: Sabaku.setup(path)))
 
     refute_equal before, after
   end
 
   def test_a_setup_block_is_part_of_the_digest
     hook = -> { :noop }
-    with_hook = Mutation.setup { after_boot(&hook) }
-    without = Mutation.setup { env "RAILS_ENV" => "test" }
+    with_hook = Sabaku.setup { after_boot(&hook) }
+    without = Sabaku.setup { env "RAILS_ENV" => "test" }
 
-    assert_equal digest(Mutation::Config.default(setup: with_hook)),
-                 digest(Mutation::Config.default(setup: with_hook))
-    refute_equal digest(Mutation::Config.default(setup: with_hook)),
-                 digest(Mutation::Config.default(setup: without))
+    assert_equal digest(Sabaku::Config.default(setup: with_hook)),
+                 digest(Sabaku::Config.default(setup: with_hook))
+    refute_equal digest(Sabaku::Config.default(setup: with_hook)),
+                 digest(Sabaku::Config.default(setup: without))
   end
 end

@@ -1,0 +1,14 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+lib = File.expand_path("../lib", __dir__)
+$LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
+
+require "sabaku"
+
+status = Sabaku::CLI.start(ARGV)
+$stdout.flush
+$stderr.flush
+# exit! on purpose: preloading a minitest project installs an at_exit hook that would run the
+# whole suite again, and the campaign is already over at this point.
+exit!(status)

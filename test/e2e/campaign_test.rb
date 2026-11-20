@@ -10,7 +10,7 @@ require "timeout"
 class CampaignTest < Minitest::Test
   include FixtureHelper
 
-  BIN = File.expand_path("../../bin/mutation", __dir__)
+  BIN = File.expand_path("../../bin/sabaku", __dir__)
 
   def run_cli(fixture, *args, timeout: 120, env: {})
     run_cli_at(fixture_path(fixture), *args, timeout: timeout, env: env)
@@ -33,9 +33,9 @@ class CampaignTest < Minitest::Test
   # A scratch copy, so a test can break the suite without touching the fixture
   # every other test reads.
   def copy_fixture(fixture)
-    Dir.mktmpdir("ruby-mutation-e2e") do |dir|
+    Dir.mktmpdir("sabaku-e2e") do |dir|
       FileUtils.cp_r(File.join(fixture_path(fixture), "."), dir)
-      FileUtils.rm_f(File.join(dir, ".mutation-cache.json"))
+      FileUtils.rm_f(File.join(dir, ".sabaku-cache.json"))
       yield dir
     end
   end
@@ -81,7 +81,7 @@ class CampaignTest < Minitest::Test
     refute_includes survivor_lines, to_s_line
   end
 
-  # Regression for two bugs the self-mutation run found. A file that uses require_relative
+  # Regression for two bugs the self-sabaku run found. A file that uses require_relative
   # must reload with the path it is used to (or every mutant is an error), and a mutant on an
   # interior line of a multi-line boolean chain must not be misreported as uncovered.
   def test_require_relative_and_multiline_chains_are_handled
@@ -131,7 +131,7 @@ class CampaignTest < Minitest::Test
     copy_fixture("minitest_calc") do |dir|
       add_failing_test(dir)
       _out, err, code = run_cli_at(dir, "run", "lib", "--no-coverage", "--report=quiet",
-                                   env: { "RUBY_MUTATION_NO_CACHE" => "1" })
+                                   env: { "SABAKU_NO_CACHE" => "1" })
 
       assert_equal 2, code
       assert_includes err, "not green with no mutation applied"
@@ -143,7 +143,7 @@ class CampaignTest < Minitest::Test
     copy_fixture("minitest_calc") do |dir|
       add_failing_test(dir)
       _out, _err, code = run_cli_at(dir, "run", "lib", "--no-coverage", "--no-baseline",
-                                    "--report=quiet", env: { "RUBY_MUTATION_NO_CACHE" => "1" })
+                                    "--report=quiet", env: { "SABAKU_NO_CACHE" => "1" })
 
       assert_equal 0, code
     end
@@ -156,7 +156,7 @@ class CampaignTest < Minitest::Test
   def test_a_kill_that_only_the_second_load_caused_is_not_reported_as_killed
     out, err, code = run_cli("plugin_project", "run", "lib/plugin.rb", "--operators=literal,return",
                              "--per-line=all", "--report=json",
-                             env: { "RUBY_MUTATION_NO_CACHE" => "1" })
+                             env: { "SABAKU_NO_CACHE" => "1" })
     payload = JSON.parse(out.lines.last)
 
     assert_equal 2, code, err
@@ -169,7 +169,7 @@ class CampaignTest < Minitest::Test
   def test_process_isolation_scores_the_same_file_without_the_second_load
     payload = campaign("plugin_project", "lib/plugin.rb", "--operators=literal,return",
                        "--per-line=all", "--isolation=process",
-                       env: { "RUBY_MUTATION_NO_CACHE" => "1" })
+                       env: { "SABAKU_NO_CACHE" => "1" })
 
     assert_operator payload["killed"], :>, 0
     assert_operator payload["survived"], :>, 0

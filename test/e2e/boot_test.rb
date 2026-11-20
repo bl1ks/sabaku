@@ -11,13 +11,13 @@ require "timeout"
 # order a Rails application needs, against the real binary and a real
 # forked campaign.
 class BootCampaignTest < Minitest::Test
-  BIN = File.expand_path("../../bin/mutation", __dir__)
+  BIN = File.expand_path("../../bin/sabaku", __dir__)
 
   def test_hooks_and_requires_run_in_the_documented_order
-    Dir.mktmpdir("ruby-mutation-boot") do |dir|
+    Dir.mktmpdir("sabaku-boot") do |dir|
       write_project(dir)
       out, err, status = run_cli(dir, "run", "lib", "--jobs=1", "--report=json",
-                                 "--setup=mutation.rb", "--env=MUTATION_PROBE=on")
+                                 "--setup=sabaku.rb", "--env=SABAKU_PROBE=on")
       payload = JSON.parse(out.lines.last)
 
       assert_equal 0, status.exitstatus, err
@@ -40,14 +40,14 @@ class BootCampaignTest < Minitest::Test
   end
 
   def test_a_raising_after_campaign_hook_is_reported_without_changing_the_verdict
-    Dir.mktmpdir("ruby-mutation-boot") do |dir|
+    Dir.mktmpdir("sabaku-boot") do |dir|
       write_project(dir)
-      File.write(File.join(dir, "mutation.rb"), <<~RUBY)
+      File.write(File.join(dir, "sabaku.rb"), <<~RUBY)
         after_campaign { raise "cleanup exploded" }
       RUBY
 
       out, err, status = run_cli(dir, "run", "lib", "--jobs=1", "--report=json",
-                                 "--setup=mutation.rb", "--env=MUTATION_PROBE=on")
+                                 "--setup=sabaku.rb", "--env=SABAKU_PROBE=on")
 
       assert_equal 0, status.exitstatus, err
       assert_includes err, "mutation: after_campaign hook failed: RuntimeError: cleanup exploded"
@@ -56,13 +56,13 @@ class BootCampaignTest < Minitest::Test
   end
 
   def test_a_setup_file_can_abort_the_campaign_loudly
-    Dir.mktmpdir("ruby-mutation-boot") do |dir|
+    Dir.mktmpdir("sabaku-boot") do |dir|
       write_project(dir)
-      File.write(File.join(dir, "mutation.rb"), <<~RUBY)
+      File.write(File.join(dir, "sabaku.rb"), <<~RUBY)
         after_boot { raise "no database for you" }
       RUBY
 
-      _out, err, status = run_cli(dir, "run", "lib", "--setup=mutation.rb")
+      _out, err, status = run_cli(dir, "run", "lib", "--setup=sabaku.rb")
 
       assert_equal 2, status.exitstatus
       assert_includes err, "no database for you"
@@ -101,16 +101,16 @@ class BootCampaignTest < Minitest::Test
     RUBY
     log = File.join(dir, "boot.log")
     File.write(File.join(dir, "boot.rb"), <<~RUBY)
-      File.open(#{log.inspect}, "a") { |file| file.puts("required:\#{ENV["MUTATION_PROBE"]}") }
+      File.open(#{log.inspect}, "a") { |file| file.puts("required:\#{ENV["SABAKU_PROBE"]}") }
     RUBY
-    File.write(File.join(dir, "mutation.rb"), <<~RUBY)
+    File.write(File.join(dir, "sabaku.rb"), <<~RUBY)
       require_path "./boot.rb"
       after_boot { record(#{log.inspect}, "after_boot") }
       before_fork { record(#{log.inspect}, "before_fork") }
       child_start { |index| record(#{log.inspect}, "child_start:\#{index}") }
       before_test_run { record(#{log.inspect}, "before_test_run") }
       after_campaign { record(#{log.inspect}, "after_campaign") }
-      MUTATION_BOOT_LOG = #{log.inspect}
+      SABAKU_BOOT_LOG = #{log.inspect}
       # A bare method so the hook blocks stay one line each.
       def record(path, line)
         File.open(path, "a") { |file| file.puts(line) }

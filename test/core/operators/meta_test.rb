@@ -43,7 +43,7 @@ class OperatorMetaTest < Minitest::Test
   end
 
   def test_every_operator_handles_only_prism_nodes
-    Mutation::Operator::Registry.all.each do |operator|
+    Sabaku::Operator::Registry.all.each do |operator|
       refute_empty operator.node_types, "#{operator.id} declares no node types"
       operator.node_types.each do |node_class|
         assert_operator node_class, :<, Prism::Node, "#{operator.id} declared #{node_class}"
@@ -52,7 +52,7 @@ class OperatorMetaTest < Minitest::Test
   end
 
   def test_no_operator_offers_a_rewrite_that_changes_nothing
-    Mutation::Operator::Registry.all.each do |operator|
+    Sabaku::Operator::Registry.all.each do |operator|
       built = source("x = thing(a, b)\nif x && y\n  xs.map { |v| v }\nend\n")
       mutants_for(built, operator.id).each do |mutant|
         refute_equal mutant.original, mutant.replacement,
@@ -70,10 +70,10 @@ class OperatorMetaTest < Minitest::Test
     refute_empty files
 
     sources = files.map do |file|
-      Mutation::Source.new(file.delete_prefix("#{root}/"), File.read(file))
+      Sabaku::Source.new(file.delete_prefix("#{root}/"), File.read(file))
     end
-    mutants = Mutation::Analyzer.new(
-      sources, Mutation::Config.default(per_line: :all, operators: Mutation::Operator::Registry.ids)
+    mutants = Sabaku::Analyzer.new(
+      sources, Sabaku::Config.default(per_line: :all, operators: Sabaku::Operator::Registry.ids)
     ).mutants
     by_path = sources.to_h { |entry| [entry.rel_path, entry] }
 

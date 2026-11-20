@@ -7,7 +7,7 @@ require "json"
 
 class CLITest < Minitest::Test
   def in_project
-    Dir.mktmpdir("ruby-mutation-cli") do |dir|
+    Dir.mktmpdir("sabaku-cli") do |dir|
       FileUtils.mkdir_p(File.join(dir, "lib"))
       File.write(File.join(dir, "lib", "subject.rb"), "def add(a, b)\n  a + b\nend\n")
       Dir.chdir(dir) { yield }
@@ -17,7 +17,7 @@ class CLITest < Minitest::Test
   def start(argv)
     out = StringIO.new
     err = StringIO.new
-    code = Mutation::CLI.start(argv, out: out, err: err)
+    code = Sabaku::CLI.start(argv, out: out, err: err)
     [code, out.string, err.string]
   end
 
@@ -61,7 +61,7 @@ class CLITest < Minitest::Test
   end
 
   def test_since_restricts_the_mutants_to_the_lines_a_revision_changed
-    Dir.mktmpdir("ruby-mutation-cli-git") do |dir|
+    Dir.mktmpdir("sabaku-cli-git") do |dir|
       Dir.chdir(dir) do
         FileUtils.mkdir_p("lib")
         File.write("lib/subject.rb", "def one(a, b)\n  a + b\nend\n\ndef two(a, b)\n  a * b\nend\n")

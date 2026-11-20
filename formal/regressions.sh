@@ -25,8 +25,8 @@ end
 RUBY
 printf '{"lib/m.rb": [[2, 2]]}\n' > "$work/diffprobe/first.json"
 printf '{"lib/m.rb": [[3, 3]]}\n' > "$work/diffprobe/second.json"
-first=$(./bin/rt sh -c "cd $work/diffprobe && ruby /app/bin/mutation list --diff=first.json --per-line=99 lib/m.rb" 2>&1)
-second=$(./bin/rt sh -c "cd $work/diffprobe && ruby /app/bin/mutation list --diff=second.json --per-line=99 lib/m.rb" 2>&1)
+first=$(./bin/rt sh -c "cd $work/diffprobe && ruby /app/bin/sabaku list --diff=first.json --per-line=99 lib/m.rb" 2>&1)
+second=$(./bin/rt sh -c "cd $work/diffprobe && ruby /app/bin/sabaku list --diff=second.json --per-line=99 lib/m.rb" 2>&1)
 if grep -Eq '^[[:space:]]+2[[:space:]]+sbr' <<<"$first" &&
   ! grep -Eq '^[[:space:]]+3[[:space:]]+sbr' <<<"$first" &&
   grep -Eq '^[[:space:]]+3[[:space:]]+sbr' <<<"$second"; then
@@ -37,8 +37,8 @@ else
 fi
 
 # 2. --help must print the table and return without touching the project.
-list_help=$(./bin/rt sh -c "cd $work/helpprobe && ruby /app/bin/mutation list --help" 2>&1)
-run_help=$(./bin/rt sh -c "cd $work/helpprobe && ruby /app/bin/mutation run --limit=0 --help" 2>&1)
+list_help=$(./bin/rt sh -c "cd $work/helpprobe && ruby /app/bin/sabaku list --help" 2>&1)
+run_help=$(./bin/rt sh -c "cd $work/helpprobe && ruby /app/bin/sabaku run --limit=0 --help" 2>&1)
 if grep -q "usage: mutation" <<<"$list_help" &&
   ! grep -Eq '^[0-9]+ mutants$' <<<"$list_help" &&
   ! grep -q "no mutants to run" <<<"$run_help"; then
@@ -51,10 +51,10 @@ fi
 # 3. The percentage the terminal prints is the percentage --min-score compares.
 out=$(./bin/rt ruby -e '
 $LOAD_PATH.unshift("/app/lib")
-require "mutation"
+require "sabaku"
 Row = Struct.new(:status, :mutant)
 results = Array.new(3999) { Row.new(:killed, nil) } + Array.new(1001) { Row.new(:survived, nil) }
-doc = Mutation::Report.new(results, Mutation::Config.default)
+doc = Sabaku::Report.new(results, Sabaku::Config.default)
 puts doc.status_lines.lines.find { |l| l.include?("mutation score") }.strip
 puts "below=#{doc.score_pct < 80}"
 ' 2>&1)
@@ -68,16 +68,16 @@ fi
 # 4. The cache must ignore a file whose format version is not the current one.
 out=$(./bin/rt ruby -e '
 $LOAD_PATH.unshift("/app/lib")
-require "mutation"
+require "sabaku"
 require "json"
 require "tmpdir"
 Dir.mktmpdir do |dir|
-  path = File.join(dir, ".mutation-cache.json")
+  path = File.join(dir, ".sabaku-cache.json")
   entry = { "entries" => { "k" => { "status" => "killed" } } }
   File.write(path, JSON.generate({ "version" => 99 }.merge(entry)))
-  stale = Mutation::Cache.new(path)
-  File.write(path, JSON.generate({ "version" => Mutation::Cache::FORMAT_VERSION }.merge(entry)))
-  fresh = Mutation::Cache.new(path)
+  stale = Sabaku::Cache.new(path)
+  File.write(path, JSON.generate({ "version" => Sabaku::Cache::FORMAT_VERSION }.merge(entry)))
+  fresh = Sabaku::Cache.new(path)
   puts "stale=#{stale.size} fresh=#{fresh.size}"
 end
 ' 2>&1)

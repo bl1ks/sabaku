@@ -4,14 +4,14 @@ require "tmpdir"
 require "fileutils"
 
 require_relative "../test_helper"
-require "mutation/runtime/first_load"
+require "sabaku/runtime/first_load"
 
 # The loader that applies a mutation at the target's first load. These tests run
 # in the suite's own process, so each one resets the current loader and the
 # load path it touched.
 class FirstLoadTest < Minitest::Test
   def setup
-    @dir = Dir.mktmpdir("ruby-mutation-first-load")
+    @dir = Dir.mktmpdir("sabaku-first-load")
     @lib = File.join(@dir, "lib")
     FileUtils.mkdir_p(@lib)
     @path = File.join(@lib, "first_load_probe.rb")
@@ -28,7 +28,7 @@ class FirstLoadTest < Minitest::Test
   end
 
   def teardown
-    Mutation::Runtime::FirstLoad.current = nil
+    Sabaku::Runtime::FirstLoad.current = nil
     $LOADED_FEATURES.replace(@before_features)
     $LOAD_PATH.replace(@before_path)
     FileUtils.remove_entry(@dir) if File.exist?(@dir)
@@ -36,7 +36,7 @@ class FirstLoadTest < Minitest::Test
 
   def loader(source = nil)
     source ||= File.read(@path).sub("1", "2")
-    Mutation::Runtime::FirstLoad.new(target: @path, source: source, root: @dir,
+    Sabaku::Runtime::FirstLoad.new(target: @path, source: source, root: @dir,
                                      shim_dir: @dir).install
   end
 

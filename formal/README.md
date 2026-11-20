@@ -15,19 +15,19 @@ versions: Lean 4.36.0, Quint 0.33.1, Apalache 0.62.4.
 | Does the running code agree with the model? | Replay | Lean and Ruby independently compute 88 splices and 36 scores; 0 mismatches. |
 
 Lean owns the pure part: offsets, operators, aridity, selection, score, cache. Quint owns the
-concurrent part: the pool in `lib/mutation/runner.rb`. The replay is the bridge: it feeds real
+concurrent part: the pool in `lib/sabaku/runner.rb`. The replay is the bridge: it feeds real
 mutants from the analyzer to a second implementation in Lean.
 
 ## Layout
 
 ```
-formal/lean/Mutation/Basic.lean      bytes, mutants, splice
-formal/lean/Mutation/Operators.lean  the operator tables
-formal/lean/Mutation/Aridity.lean    the recursive aridity rule and the walk
-formal/lean/Mutation/Selection.lean  per-line selection and its stability
-formal/lean/Mutation/Score.lean      the mutation score
-formal/lean/Mutation/Cache.lean      cache read/write
-formal/lean/Mutation/Replay.lean     the second implementation used by the replay
+formal/lean/Sabaku/Basic.lean      bytes, mutants, splice
+formal/lean/Sabaku/Operators.lean  the operator tables
+formal/lean/Sabaku/Aridity.lean    the recursive aridity rule and the walk
+formal/lean/Sabaku/Selection.lean  per-line selection and its stability
+formal/lean/Sabaku/Score.lean      the mutation score
+formal/lean/Sabaku/Cache.lean      cache read/write
+formal/lean/Sabaku/Replay.lean     the second implementation used by the replay
 formal/quint/runner.qnt              the pool model and its invariants
 formal/quint/variants.sh             generates one fault variant per invariant
 formal/replay/emit.rb                deterministic facts from the real analyzer

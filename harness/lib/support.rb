@@ -12,7 +12,7 @@ require "tmpdir"
 module Harness
   ROOT = File.expand_path("../..", __dir__)
   CASES = File.join(ROOT, "harness", "cases")
-  BIN = File.join(ROOT, "bin", "mutation")
+  BIN = File.join(ROOT, "bin", "sabaku")
 
   class Failure < StandardError; end
 
@@ -58,7 +58,7 @@ module Harness
 
     # ---- running the engine --------------------------------------------------
 
-    # Runs bin/mutation in `root`. Returns [stdout, stderr, exit code]. An engine run that
+    # Runs bin/sabaku in `root`. Returns [stdout, stderr, exit code]. An engine run that
     # blocks past `timeout` is a harness failure, not a silent hang.
     def run(root, *args, env: {}, timeout: 300)
       out = err = nil
@@ -121,7 +121,7 @@ module Harness
 
       Dir.mktmpdir("practical-#{name}") do |dir|
         FileUtils.cp_r(File.join(source, "."), dir)
-        FileUtils.rm_f(File.join(dir, ".mutation-cache.json"))
+        FileUtils.rm_f(File.join(dir, ".sabaku-cache.json"))
         yield dir
       end
     end

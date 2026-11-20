@@ -73,7 +73,7 @@ practical_case("ci") do |k|
     # child. The bulk method below it is killable, so a working --fail-fast stops between them.
     # Both runs are cold: a warm cache would return the later verdicts for free, and a halt
     # that costs nothing has nothing left to skip.
-    cold = { "RUBY_MUTATION_NO_CACHE" => "1" }
+    cold = { "SABAKU_NO_CACHE" => "1" }
     cold_out, _err, cold_code = k.run(dir, "run", "lib", "--report=json", env: cold)
     cold_run = k.parse_report(cold_out)
     k.assert_equal("cold run exits 0", 0, cold_code)

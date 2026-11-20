@@ -10,9 +10,9 @@ class CoverageSamplerTest < Minitest::Test
 
   def test_shipping_test_covers_shipping_lines_and_not_unrelated_ones
     in_project("minitest_calc") do
-      source = Mutation::Source.new("lib/pricing.rb", File.read("lib/pricing.rb"))
-      adapter = Mutation::Adapters::MinitestAdapter.new
-      map = Mutation::Adapters::CoverageSampler.new(config_for, adapter, [source]).call
+      source = Sabaku::Source.new("lib/pricing.rb", File.read("lib/pricing.rb"))
+      adapter = Sabaku::Adapters::MinitestAdapter.new
+      map = Sabaku::Adapters::CoverageSampler.new(config_for, adapter, [source]).call
 
       # Both tests that call Pricing#shipping must be recorded on the lines of
       # the method body...
@@ -39,15 +39,15 @@ class CoverageSamplerTest < Minitest::Test
   # falls back to. Recording just those lines must not change any answer.
   def test_mutant_scope_keeps_every_selection_query_identical
     in_project("minitest_calc") do
-      source = Mutation::Source.new("lib/pricing.rb", File.read("lib/pricing.rb"))
+      source = Sabaku::Source.new("lib/pricing.rb", File.read("lib/pricing.rb"))
       config = config_for
-      mutants = Mutation::Analyzer.new([source], config).mutants
+      mutants = Sabaku::Analyzer.new([source], config).mutants
 
-      full = Mutation::Adapters::CoverageSampler.new(
-        config, Mutation::Adapters::MinitestAdapter.new, [source]
+      full = Sabaku::Adapters::CoverageSampler.new(
+        config, Sabaku::Adapters::MinitestAdapter.new, [source]
       ).call
-      scoped = Mutation::Adapters::CoverageSampler.new(
-        config, Mutation::Adapters::MinitestAdapter.new, [source], mutants: mutants
+      scoped = Sabaku::Adapters::CoverageSampler.new(
+        config, Sabaku::Adapters::MinitestAdapter.new, [source], mutants: mutants
       ).call
 
       mutants.each do |mutant|
@@ -62,11 +62,11 @@ class CoverageSamplerTest < Minitest::Test
   # The weak pass runs after the coverage pass, so both answers come from one call.
   def test_the_weak_pass_answers_covered_mutants
     in_project("minitest_calc") do
-      source = Mutation::Source.new("lib/pricing.rb", File.read("lib/pricing.rb"))
+      source = Sabaku::Source.new("lib/pricing.rb", File.read("lib/pricing.rb"))
       config = config_for
-      mutants = Mutation::Analyzer.new([source], config).mutants
-      sampler = Mutation::Adapters::CoverageSampler.new(
-        config, Mutation::Adapters::MinitestAdapter.new, [source], mutants: mutants
+      mutants = Sabaku::Analyzer.new([source], config).mutants
+      sampler = Sabaku::Adapters::CoverageSampler.new(
+        config, Sabaku::Adapters::MinitestAdapter.new, [source], mutants: mutants
       )
       map = sampler.call
       weak = sampler.weak_report
@@ -95,12 +95,12 @@ class CoverageSamplerTest < Minitest::Test
   # from TestSelection's own answer for the same mutants.
   def test_the_weak_pass_runs_only_the_tests_that_can_see_a_probe
     in_project("weak_scope_minitest", glob: "test/*_case.rb") do
-      source = Mutation::Source.new("lib/rates.rb", File.read("lib/rates.rb"))
+      source = Sabaku::Source.new("lib/rates.rb", File.read("lib/rates.rb"))
       config = config_for
-      mutants = Mutation::Analyzer.new([source], config).mutants
-      eligible = Mutation::Weak.eligible(mutants)
+      mutants = Sabaku::Analyzer.new([source], config).mutants
+      eligible = Sabaku::Weak.eligible(mutants)
 
-      adapter_class = Class.new(Mutation::Adapters::MinitestAdapter) do
+      adapter_class = Class.new(Sabaku::Adapters::MinitestAdapter) do
         attr_reader :runs
 
         def run(ids)
@@ -109,7 +109,7 @@ class CoverageSamplerTest < Minitest::Test
         end
       end
       adapter = adapter_class.new
-      sampler = Mutation::Adapters::CoverageSampler.new(
+      sampler = Sabaku::Adapters::CoverageSampler.new(
         config, adapter, [source], mutants: mutants
       )
       map = sampler.call
@@ -158,10 +158,10 @@ class CoverageSamplerTest < Minitest::Test
       $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
       require "pricing"
 
-      source = Mutation::Source.new("lib/pricing.rb", File.read("lib/pricing.rb"))
+      source = Sabaku::Source.new("lib/pricing.rb", File.read("lib/pricing.rb"))
       config = config_for
-      adapter = Mutation::Adapters::MinitestAdapter.new
-      map = Mutation::Adapters::CoverageSampler.new(config, adapter, [source]).call
+      adapter = Sabaku::Adapters::MinitestAdapter.new
+      map = Sabaku::Adapters::CoverageSampler.new(config, adapter, [source]).call
 
       assert_includes map.tests_for("lib/pricing.rb", 39), SHIPPING_TEST
     end
@@ -169,12 +169,12 @@ class CoverageSamplerTest < Minitest::Test
 
   def test_a_red_suite_stops_the_campaign_before_it_scores_anything
     in_project("failing_minitest", glob: "test/*_case.rb") do
-      source = Mutation::Source.new("lib/thing.rb", File.read("lib/thing.rb"))
+      source = Sabaku::Source.new("lib/thing.rb", File.read("lib/thing.rb"))
       config = config_for
-      adapter = Mutation::Adapters::MinitestAdapter.new
+      adapter = Sabaku::Adapters::MinitestAdapter.new
 
-      error = assert_raises(Mutation::BaselineError) do
-        Mutation::Adapters::CoverageSampler.new(config, adapter, [source]).call
+      error = assert_raises(Sabaku::BaselineError) do
+        Sabaku::Adapters::CoverageSampler.new(config, adapter, [source]).call
       end
 
       assert_match(/1 of 2 tests fail/, error.message)
@@ -185,11 +185,11 @@ class CoverageSamplerTest < Minitest::Test
 
   def test_no_baseline_keeps_sampling_a_red_suite
     in_project("failing_minitest", glob: "test/*_case.rb") do
-      source = Mutation::Source.new("lib/thing.rb", File.read("lib/thing.rb"))
+      source = Sabaku::Source.new("lib/thing.rb", File.read("lib/thing.rb"))
       config = config_for(baseline: false)
-      adapter = Mutation::Adapters::MinitestAdapter.new
+      adapter = Sabaku::Adapters::MinitestAdapter.new
 
-      map = Mutation::Adapters::CoverageSampler.new(config, adapter, [source]).call
+      map = Sabaku::Adapters::CoverageSampler.new(config, adapter, [source]).call
 
       assert_includes map.test_ids, "ThingTest#test_broken"
       assert_includes map.test_ids, "ThingTest#test_value"

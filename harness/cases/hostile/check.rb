@@ -77,7 +77,7 @@ practical_case("hostile") do |k|
   k.copy_project do |dir|
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     out, err, code = k.run(dir, "run", "lib", "--per-line=all", "--report=json",
-                           env: { "RUBY_MUTATION_NO_CACHE" => "1" })
+                           env: { "SABAKU_NO_CACHE" => "1" })
     cold_seconds = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
 
     k.assert_equal("cold run exits 0", 0, code, "exit #{code}\n--- stderr\n#{err}")

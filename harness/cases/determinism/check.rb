@@ -7,7 +7,7 @@ require "json"
 # Falsified by: cold runs that differ, a cache that returns a stale verdict, or a new
 # covering test that leaves the survivor in place.
 practical_case("determinism") do |k|
-  cold_env = { "RUBY_MUTATION_NO_CACHE" => "1" }
+  cold_env = { "SABAKU_NO_CACHE" => "1" }
   # --per-line=all is what puts the boundary comparison in the campaign: the default
   # one-per-line keeps a whole-condition replacement instead, which the suite already
   # kills and which says nothing about the missing edge.
@@ -125,9 +125,9 @@ practical_case("determinism") do |k|
     k.note(format("cold walls=%s warm=%.3fs", colds.map { |run| format("%.3f", run[:wall]) }.join("/"), warm[:wall]))
 
     # ---- 6. the cache file a warm run leaves behind -------------------------
-    cache_path = File.join(dir, ".mutation-cache.json")
+    cache_path = File.join(dir, ".sabaku-cache.json")
     cache = cache_json.call(cache_path)
-    k.assert("the cached run writes .mutation-cache.json", File.file?(cache_path))
+    k.assert("the cached run writes .sabaku-cache.json", File.file?(cache_path))
     k.assert("the cache file parses as JSON", cache.is_a?(Hash),
              File.file?(cache_path) ? File.read(cache_path)[0, 120] : "missing")
     k.assert("the cache file records a format version", cache.is_a?(Hash) && cache["version"].is_a?(Integer))

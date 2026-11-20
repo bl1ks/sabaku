@@ -16,7 +16,7 @@ require "timeout"
 class MysqlCampaignTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
   APP = File.join(ROOT, "fixture", "rails_app")
-  BIN = File.join(ROOT, "bin", "mutation")
+  BIN = File.join(ROOT, "bin", "sabaku")
 
   DATABASE = "ruby_mutation_e2e_#{Process.pid}"
   PREFIX = "mutation_e2e_#{Process.pid}"
@@ -26,12 +26,12 @@ class MysqlCampaignTest < Minitest::Test
   end
 
   def test_campaign_clones_the_database_per_child_and_drops_the_clones
-    Dir.mktmpdir("ruby-mutation-mysql") do |dir|
+    Dir.mktmpdir("sabaku-mysql") do |dir|
       app = File.join(dir, "app")
       FileUtils.cp_r(APP, app)
-      log = File.join(app, "tmp", "mutation_mysql.log")
-      env = mysql_env.merge("RAILS_ENV" => "test", "MUTATION_DB" => "mysql",
-                            "MUTATION_DB_PREFIX" => PREFIX, "MUTATION_DB_LOG" => log,
+      log = File.join(app, "tmp", "sabaku_mysql.log")
+      env = mysql_env.merge("RAILS_ENV" => "test", "SABAKU_DB" => "mysql",
+                            "SABAKU_DB_PREFIX" => PREFIX, "SABAKU_DB_LOG" => log,
                             "MYSQL_DATABASE" => DATABASE)
       begin
         _out, err, status = run!(app, RbConfig.ruby, "bin/rails", "db:create", "db:schema:load",
@@ -39,7 +39,7 @@ class MysqlCampaignTest < Minitest::Test
         assert_equal 0, status.exitstatus, "db:create db:schema:load failed: #{err}"
 
         out, err, status = run!(app, RbConfig.ruby, BIN, "run", "app/models",
-                                "--setup=mutation_mysql.rb", "--jobs=2", "--timeout=5",
+                                "--setup=sabaku_mysql.rb", "--jobs=2", "--timeout=5",
                                 "--report=json", env: env)
         payload = JSON.parse(out.lines.last)
 

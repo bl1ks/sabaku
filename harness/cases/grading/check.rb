@@ -50,15 +50,15 @@ end
 
 # Every run is cold: a warm cache would return verdicts this case did not measure, and the two
 # report shapes must be derived from the same execution.
-COLD = { "RUBY_MUTATION_NO_CACHE" => "1" }.freeze
+COLD = { "SABAKU_NO_CACHE" => "1" }.freeze
 
-# The text `mutation list` prints for a mutant, rebuilt from the fields the json report carries.
+# The text `sabaku list` prints for a mutant, rebuilt from the fields the json report carries.
 # Mutant#description is exactly this string, so a list row and a result row are comparable.
 def mutation_description(mutant)
   "#{mutant.fetch('operator').upcase}: #{mutant.fetch('original')} -> #{mutant.fetch('replacement')}"
 end
 
-# `mutation list` prints one header per file and one row per mutant; a statement-block mutant's
+# `sabaku list` prints one header per file and one row per mutant; a statement-block mutant's
 # description spans several lines, so a row owns every line until the next row, header or count.
 def parse_list(output)
   header = /\A(\S+)  \(\d+\)\z/

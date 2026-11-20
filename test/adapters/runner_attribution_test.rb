@@ -14,7 +14,7 @@ class RunnerAttributionTest < Minitest::Test
   include AdapterTestHelpers
 
   def setup
-    @tmpdir = Dir.mktmpdir("ruby-mutation-attribution-test")
+    @tmpdir = Dir.mktmpdir("sabaku-attribution-test")
   end
 
   def teardown
@@ -28,12 +28,12 @@ class RunnerAttributionTest < Minitest::Test
         build_mutant(root: root, path: path, line: line, original: original,
                      replacement: replacement, operator: operator, node_kind: node_kind)
       ]
-      map = Mutation::CoverageMap.empty
+      map = Sabaku::CoverageMap.empty
       map.record(test_id, { path => map_lines })
       config = config_for(paths: ["lib"], isolation: :fork,
                           output: File.join(@tmpdir, "report.json"))
-      adapter = Mutation::Adapters::MinitestAdapter.new
-      Mutation::Runner.new(config, analyzer: nil, adapter: adapter, coverage_map: map).call(mutants)
+      adapter = Sabaku::Adapters::MinitestAdapter.new
+      Sabaku::Runner.new(config, analyzer: nil, adapter: adapter, coverage_map: map).call(mutants)
     end
   end
 
@@ -132,14 +132,14 @@ class RunnerAttributionTest < Minitest::Test
   def test_a_harness_failure_while_running_tests_stays_an_error
     in_project("tiny_minitest", glob: "test/*_case.rb") do |root|
       mutants = [build_mutant(root: root, line: 5, original: "a + b", replacement: "a - b")]
-      map = Mutation::CoverageMap.empty
+      map = Sabaku::CoverageMap.empty
       map.record("CalcTest#test_add", { "lib/calc.rb" => [4, 5, 6] })
-      setup = Mutation::Setup.new
+      setup = Sabaku::Setup.new
       setup.before_test_run { raise "harness blew up" }
       config = config_for(paths: ["lib"], isolation: :fork, setup: setup,
                           output: File.join(@tmpdir, "report.json"))
-      adapter = Mutation::Adapters::MinitestAdapter.new
-      result = Mutation::Runner.new(config, analyzer: nil, adapter: adapter,
+      adapter = Sabaku::Adapters::MinitestAdapter.new
+      result = Sabaku::Runner.new(config, analyzer: nil, adapter: adapter,
                                     coverage_map: map).call(mutants).first
 
       assert_equal :error, result.status, result.message

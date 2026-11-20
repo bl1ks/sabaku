@@ -21,11 +21,11 @@ class AnalyzerTest < Minitest::Test
     built = source("a + b\n")
     aor = fake_mutant(built, operator: :aor, replacement: "a - b")
     lcr = fake_mutant(built, operator: :lcr, replacement: "a || b")
-    analyzer = Mutation::Analyzer.new([built], Mutation::Config.default(per_line: 1))
+    analyzer = Sabaku::Analyzer.new([built], Sabaku::Config.default(per_line: 1))
 
     assert_equal [:lcr], analyzer.send(:select_per_line, built, [aor, lcr]).map(&:operator)
 
-    two = Mutation::Analyzer.new([built], Mutation::Config.default(per_line: 2))
+    two = Sabaku::Analyzer.new([built], Sabaku::Config.default(per_line: 2))
     assert_equal %i[lcr aor].sort,
                  two.send(:select_per_line, built, [aor, lcr]).map(&:operator).sort
   end
@@ -58,7 +58,7 @@ class AnalyzerTest < Minitest::Test
 
   def test_each_is_lazy_and_matches_mutants
     built = source("a + b\nc * d\n")
-    analyzer = Mutation::Analyzer.new([built], Mutation::Config.default)
+    analyzer = Sabaku::Analyzer.new([built], Sabaku::Config.default)
 
     assert_instance_of Enumerator, analyzer.each
     assert_equal analyzer.mutants, analyzer.each.to_a
@@ -148,11 +148,11 @@ class AnalyzerTest < Minitest::Test
     built = source("a + b\n")
     node = built.flat_nodes.find { |candidate| candidate.is_a?(Prism::CallNode) }
     fake = Struct.new(:id).new(:fake)
-    replacement = Mutation::Operator::Replacement.new(original: "not the slice",
+    replacement = Sabaku::Operator::Replacement.new(original: "not the slice",
                                                       replacement: "a - b")
-    analyzer = Mutation::Analyzer.new([], Mutation::Config.default(operators: []))
+    analyzer = Sabaku::Analyzer.new([], Sabaku::Config.default(operators: []))
 
-    error = assert_raises(Mutation::OperatorError) do
+    error = assert_raises(Sabaku::OperatorError) do
       analyzer.send(:verify!, fake, replacement, "a + b", built, node)
     end
 
@@ -171,7 +171,7 @@ class AnalyzerTest < Minitest::Test
     built = source("a + b\n")
     good = fake_mutant(built, replacement: "a - b", end_offset: 5)
     broken = fake_mutant(built, replacement: "a -", end_offset: 5)
-    analyzer = Mutation::Analyzer.new([built], Mutation::Config.default(per_line: 1))
+    analyzer = Sabaku::Analyzer.new([built], Sabaku::Config.default(per_line: 1))
 
     chosen = analyzer.send(:select_per_line, built, [broken, good])
 
@@ -181,13 +181,13 @@ class AnalyzerTest < Minitest::Test
   def test_a_line_whose_candidates_all_break_keeps_no_mutant
     built = source("a + b\n")
     broken = fake_mutant(built, replacement: "a -", end_offset: 5)
-    analyzer = Mutation::Analyzer.new([built], Mutation::Config.default(per_line: 1))
+    analyzer = Sabaku::Analyzer.new([built], Sabaku::Config.default(per_line: 1))
 
     assert_empty analyzer.send(:select_per_line, built, [broken])
   end
 
   def fake_mutant(built, replacement:, end_offset: 5, operator: :aor)
-    Mutation::Mutant.new(
+    Sabaku::Mutant.new(
       path: built.rel_path, operator: operator, line: 1, column: 0, node_kind: "CallNode",
       original: "a + b", replacement: replacement, start_offset: 0, end_offset: end_offset
     )

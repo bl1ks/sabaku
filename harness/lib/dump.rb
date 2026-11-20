@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # Human-readable dump of a JSON campaign report, for triaging a red practical case.
-#   ruby bin/mutation run lib --report=json | ruby harness/lib/dump.rb
+#   ruby bin/sabaku run lib --report=json | ruby harness/lib/dump.rb
 require "json"
 
 text = $stdin.read

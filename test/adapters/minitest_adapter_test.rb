@@ -8,7 +8,7 @@ class MinitestAdapterTest < Minitest::Test
 
   def test_preload_fixture_and_run_subsets
     in_project("minitest_calc") do
-      adapter = Mutation::Adapters::MinitestAdapter.new
+      adapter = Sabaku::Adapters::MinitestAdapter.new
 
       adapter.preload!
 
@@ -26,7 +26,7 @@ class MinitestAdapterTest < Minitest::Test
 
   def test_failing_test_returns_failed_outcome_without_raising
     in_project("failing_minitest", glob: "test/*_case.rb") do
-      adapter = Mutation::Adapters::MinitestAdapter.new
+      adapter = Sabaku::Adapters::MinitestAdapter.new
       adapter.preload!
 
       ids = adapter.test_ids
@@ -47,25 +47,25 @@ class MinitestAdapterTest < Minitest::Test
 
   def test_unknown_id_is_an_error_outcome_not_an_exception
     in_project("minitest_calc") do
-      adapter = Mutation::Adapters::MinitestAdapter.new
+      adapter = Sabaku::Adapters::MinitestAdapter.new
       adapter.preload!
 
       outcome = adapter.run(["Nope#test_missing"])
       refute outcome.ok
       assert_equal "Nope#test_missing", outcome.failed_id
-      assert_kind_of Mutation::Error, outcome.error
+      assert_kind_of Sabaku::Error, outcome.error
     end
   end
 
   def test_custom_test_glob
     in_project("minitest_calc") do
-      ENV["RUBY_MUTATION_TEST_GLOB"] = "test/*_test.rb"
-      adapter = Mutation::Adapters::MinitestAdapter.new
+      ENV["SABAKU_TEST_GLOB"] = "test/*_test.rb"
+      adapter = Sabaku::Adapters::MinitestAdapter.new
       adapter.preload!
 
       assert_equal 6, adapter.test_ids.size
     ensure
-      ENV.delete("RUBY_MUTATION_TEST_GLOB")
+      ENV.delete("SABAKU_TEST_GLOB")
     end
   end
 end
@@ -78,7 +78,7 @@ class MinitestAdapterTest < Minitest::Test
     Minitest.send(:remove_const, :Spec)
 
     in_project("no_spec_minitest", glob: "test/*_case.rb") do
-      adapter = Mutation::Adapters::MinitestAdapter.new
+      adapter = Sabaku::Adapters::MinitestAdapter.new
       adapter.preload!
       assert_equal ["HiddenCaseTest#test_value"], adapter.test_ids
     end

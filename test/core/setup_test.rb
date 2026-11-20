@@ -5,8 +5,8 @@ require "tmpdir"
 
 class SetupTest < Minitest::Test
   def with_setup_file(body)
-    Dir.mktmpdir("ruby-mutation-setup") do |dir|
-      path = File.join(dir, "mutation.rb")
+    Dir.mktmpdir("sabaku-setup") do |dir|
+      path = File.join(dir, "sabaku.rb")
       File.write(path, body)
       yield path
     end
@@ -20,7 +20,7 @@ class SetupTest < Minitest::Test
       child_start { |index| $setup_order << [:child_start, index] }
       after_campaign { $setup_order << :after_campaign }
     RUBY
-      setup = Mutation.setup(path)
+      setup = Sabaku.setup(path)
 
       assert_equal({ "APP_MODE" => "test" }, setup.env_vars)
       assert_equal ["./config/environment"], setup.require_paths
@@ -35,7 +35,7 @@ class SetupTest < Minitest::Test
   end
 
   def test_block_form_is_the_same_value
-    setup = Mutation.setup do
+    setup = Sabaku.setup do
       env("LANG" => "C")
       before_fork { :noop }
     end
@@ -45,21 +45,21 @@ class SetupTest < Minitest::Test
   end
 
   def test_a_hook_without_a_block_is_rejected
-    assert_raises(ArgumentError) { Mutation::Setup.new.after_boot }
+    assert_raises(ArgumentError) { Sabaku::Setup.new.after_boot }
   end
 
   def test_boot_applies_env_before_anything_loads
-    config = Mutation::Config.default(env: { "MUTATION_BOOT_TEST" => "on" })
-    previous = ENV["MUTATION_BOOT_TEST"]
+    config = Sabaku::Config.default(env: { "SABAKU_BOOT_TEST" => "on" })
+    previous = ENV["SABAKU_BOOT_TEST"]
 
-    Mutation::Boot.env(config)
-    assert_equal "on", ENV["MUTATION_BOOT_TEST"]
+    Sabaku::Boot.env(config)
+    assert_equal "on", ENV["SABAKU_BOOT_TEST"]
   ensure
-    ENV["MUTATION_BOOT_TEST"] = previous
-    ENV.delete("MUTATION_BOOT_TEST") if previous.nil?
+    ENV["SABAKU_BOOT_TEST"] = previous
+    ENV.delete("SABAKU_BOOT_TEST") if previous.nil?
   end
 
   def test_a_setup_without_hooks_is_empty
-    assert Mutation::Setup.new.empty?
+    assert Sabaku::Setup.new.empty?
   end
 end

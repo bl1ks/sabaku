@@ -1,4 +1,4 @@
-# ruby-mutation design contract
+# sabaku design contract
 
 Every subagent codes against this file. Deviations are surfaced, not absorbed.
 
@@ -13,9 +13,9 @@ pick, offset-derived identity, and the assumption that a survivor needs a child 
 | --- | --- | --- |
 | Mutants on changed lines only (diff-based) | `--diff` / `Config#diff_ranges` filters mutants by line | `Analyzer` |
 | Lines without statement coverage are not mutated | mutant without a covering test is `:uncovered`, never run | `Runner` |
-| Arid nodes are suppressed (expert() on simple nodes, recursive AND on compound) | `Aridity#arid?(node, ancestors)` with Ruby rules | `lib/mutation/aridity.rb` |
+| Arid nodes are suppressed (expert() on simple nodes, recursive AND on compound) | `Aridity#arid?(node, ancestors)` with Ruby rules | `lib/sabaku/aridity.rb` |
 | At most one mutant per line | the line spends its budget on the most productive operator first, with no random draw | `Analyzer`, `Registry::PRODUCTIVITY` |
-| Operators AOR, LCR, ROR, SBR, UOI | same ids, Ruby semantics, plus nine Ruby-shaped operators | `lib/mutation/operators/` |
+| Operators AOR, LCR, ROR, SBR, UOI | same ids, Ruby semantics, plus nine Ruby-shaped operators | `lib/sabaku/operators/` |
 | Mutant killed / living, test target per file | `:killed` / `:survived`, `CoverageMap#tests_for` | `Runner`, `adapters/` |
 
 ## What replaces the paper
@@ -32,7 +32,7 @@ These are the core types. Every value object is frozen and `#to_h`-able so the r
 JSON cache never need a second conversion path.
 
 ```ruby
-# lib/mutation/config.rb
+# lib/sabaku/config.rb
 Config = Data.define(
   :paths,        # Array[String] files or globs to mutate
   :exclude,      # Array[String] globs
@@ -47,7 +47,7 @@ Config = Data.define(
   :output,       # String path | nil
   :env,          # Hash[String => String], set before the suite loads
   :requires,     # Array[String], required after Coverage.start, before the tests
-  :setup,        # Mutation::Setup | nil, the --setup hooks
+  :setup,        # Sabaku::Setup | nil, the --setup hooks
   :setup_path,   # String | nil, the file the setup came from (process isolation)
   :fail_fast,    # Boolean, stop at the first survivor
   :baseline,     # Boolean, refuse to score a suite that is not green and re-check kills
@@ -55,7 +55,7 @@ Config = Data.define(
 )
 Config.default(**overrides) -> Config
 
-# lib/mutation/source.rb
+# lib/sabaku/source.rb
 Source.new(rel_path, text)
   #rel_path    -> String, path relative to the project root
   #text        -> String (frozen)
@@ -64,7 +64,7 @@ Source.new(rel_path, text)
   #slice(node) -> String, exactly node.location.slice
   flat_nodes  -> Enumerator[Prism::Node] (preorder, excluding the root)
 
-# lib/mutation/mutant.rb
+# lib/sabaku/mutant.rb
 Mutant = Data.define(:id, :path, :operator, :line, :column, :node_kind, :original,
                      :replacement, :start_offset, :end_offset, :scope, :ast_path, :weak)
   #id          String, stable: sha1("path\0scope\0ast_path\0operator\0replacement")[0, 16]
@@ -88,7 +88,7 @@ cache, but they are not part of the id: a method that moves keeps its cache entr
 never re-parses.
 
 ```ruby
-# lib/mutation/operators/registry.rb
+# lib/sabaku/operators/registry.rb
 # An operator is a module with three methods.
 Operator.id           -> Symbol                 # see Registry.ids above
 Operator.node_types   -> Array[Class]           # Prism node classes it applies to
@@ -106,14 +106,14 @@ Operator::Registry.rank(id) -> Integer          # index in PRODUCTIVITY; unknown
 ```
 
 ```ruby
-# lib/mutation/aridity.rb
+# lib/sabaku/aridity.rb
 Aridity.new #arid?(node, ancestors) -> Boolean
 # simple node: expert(node, ancestors)
 # compound node: all children arid (recursive, per paper equation 1)
 ```
 
 ```ruby
-# lib/mutation/analyzer.rb
+# lib/sabaku/analyzer.rb
 Analyzer.new(sources, config) #each -> Enumerator[Mutant]
 Analyzer.new(...).mutants     -> Array[Mutant]  # deterministic order: path, offset, operator
 ```
@@ -127,7 +127,7 @@ replacement. The line keeps the first `per_line` candidates that re-parse. There
 no seed: the same code always keeps the same mutants.
 
 ```ruby
-# lib/mutation/weak.rb
+# lib/sabaku/weak.rb
 Weak.reset!                       # clears the runtime state before a dry run
 Weak.eligible?(operator, node)    # Boolean: pure operands, a rewritable value
 Weak.instrument(source, mutants)  # -> [probed_text, Array[Probe]] | nil
@@ -139,7 +139,7 @@ Report#decision(mutant, selected_ids) -> :not_infected | :infected | :unknown
 A probe wraps one expression and every mutant of that expression:
 
 ```ruby
-::Mutation::Weak.evaluate((a - b), [["id1", -> { (a + b) }], ["id2", -> { (a * b) }]])
+::Sabaku::Weak.evaluate((a - b), [["id1", -> { (a + b) }], ["id2", -> { (a * b) }]])
 ```
 
 `evaluate` returns the original value, so the pass cannot change behaviour. It records `seen`
@@ -152,7 +152,7 @@ parenthesised pure expressions, and binary or logical nodes of those. A method c
 (`a.size`) stays off the list because nothing proves it is free of side effects.
 
 ```ruby
-# lib/mutation/coverage_map.rb
+# lib/sabaku/coverage_map.rb
 CoverageMap.empty
 CoverageMap#record(test_id, hits)         # hits: Hash[path => Array[Integer] | Set[Integer]]
 CoverageMap#tests_for(path, line)         -> Array[String] sorted
@@ -164,7 +164,7 @@ The coverage sampler owns per-test coverage collection; `CoverageMap` is a plain
 answers "which tests execute this file and line".
 
 ```ruby
-# lib/mutation/test_selection.rb
+# lib/sabaku/test_selection.rb
 TestSelection.new(coverage_map)
 TestSelection#tests_for(mutant, source)   -> Array[String], ordered by reach then id
 ```
@@ -174,7 +174,7 @@ weak pass runs exactly the union of those answers. A second copy of the rule wou
 test the runner picks but the probe pass skipped would turn a decided mutant into `:unknown`.
 
 ```ruby
-# lib/mutation/adapters/minitest.rb
+# lib/sabaku/adapters/minitest.rb
 MinitestAdapter.new     -> adapter
 adapter.preload!        -> void          # loads the project's tests into this process
 adapter.test_ids        -> Array[String] # stable ids, minitest native
@@ -186,7 +186,7 @@ Outcome = Data.define(:ok, :failed_id, :error)   # ok: Boolean, error: Exception
 raise for an ordinary test failure, and must never call `exit`.
 
 ```ruby
-# lib/mutation/runner.rb
+# lib/sabaku/runner.rb
 Runner.new(config, analyzer:, adapter:, coverage_map:, weak:) #call -> Array[Result]
 Result = Data.define(:mutant, :status, :duration, :failed_test, :message, :reason)
 # status: :killed | :survived | :timeout | :error | :uncovered | :skipped
@@ -310,7 +310,7 @@ for every mutant. Slower, and the fallback surface for a file that fork isolatio
 - Ruby version and the selected test ids
 
 A hit skips the child and reports the stored status and reason with duration 0. `:uncovered`
-results are not stored. `RUBY_MUTATION_NO_CACHE` is the kill switch.
+results are not stored. `SABAKU_NO_CACHE` is the kill switch.
 
 ## Aridity rules for Ruby (expert())
 

@@ -18,13 +18,13 @@ class FixtureMutantsTest < Minitest::Test
     source(read_fixture("inventory", "lib", "inventory.rb"), INVENTORY)
   end
 
-  def mutants_for_fixture(built, operators: Mutation::Operator::Registry.ids, per_line: 100)
+  def mutants_for_fixture(built, operators: Sabaku::Operator::Registry.ids, per_line: 100)
     analyze(built, operators: operators, per_line: per_line)
   end
 
   def test_pricing_default_selection_is_one_mutant_per_line
     built = pricing
-    mutants = mutants_for_fixture(built, operators: Mutation::Operator::Registry.defaults, per_line: 1)
+    mutants = mutants_for_fixture(built, operators: Sabaku::Operator::Registry.defaults, per_line: 1)
 
     assert_includes 8..20, mutants.size
     assert_equal mutants.size, mutants.map(&:line).uniq.size
@@ -41,7 +41,7 @@ class FixtureMutantsTest < Minitest::Test
 
   def test_inventory_default_selection_is_one_mutant_per_line
     built = inventory
-    mutants = mutants_for_fixture(built, operators: Mutation::Operator::Registry.defaults, per_line: 1)
+    mutants = mutants_for_fixture(built, operators: Sabaku::Operator::Registry.defaults, per_line: 1)
 
     assert_includes 6..15, mutants.size
     assert_equal mutants.size, mutants.map(&:line).uniq.size

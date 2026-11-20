@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Whole verification matrix for ruby-mutation, in one command. Exits nonzero on the first
+# Whole verification matrix for sabaku, in one command. Exits nonzero on the first
 # failure so CI and a reviewer can trust a single green line.
 set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -28,14 +28,14 @@ e2e
 
 echo "== packaged gem runs against a project"
 unset GEM_HOME GEM_PATH
-gem build -q ruby-mutation.gemspec >/dev/null
+gem build -q sabaku.gemspec >/dev/null
 rm -rf /tmp/gemhome && mkdir -p /tmp/gemhome
-gem install --no-document --install-dir /tmp/gemhome ruby-mutation-*.gem >/dev/null
-rm -f ruby-mutation-*.gem
+gem install --no-document --install-dir /tmp/gemhome sabaku-*.gem >/dev/null
+rm -f sabaku-*.gem
 cd fixture/minitest_calc
 GEM_HOME=/tmp/gemhome GEM_PATH=/tmp/gemhome:/usr/local/bundle:/usr/local/lib/ruby/gems/3.4.0 \
-  RUBY_MUTATION_NO_CACHE=1 \
-  /tmp/gemhome/bin/mutation run lib --min-score=50 --report=quiet
+  SABAKU_NO_CACHE=1 \
+  /tmp/gemhome/bin/sabaku run lib --min-score=50 --report=quiet
 echo "   installed gem: campaign ok"
 '
 

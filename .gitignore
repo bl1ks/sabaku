@@ -1,6 +1,6 @@
-# Mutant cache. The engine writes .mutation-cache.json in the working directory,
+# Mutant cache. The engine writes .sabaku-cache.json in the working directory,
 # or beside --output, so the pattern stays unanchored.
-.mutation-cache.json
+.sabaku-cache.json
 
 # Gems built by `gem build`, which bin/check does.
 *.gem

@@ -23,13 +23,13 @@ module AdapterTestHelpers
   def in_project(name, glob: nil)
     directory = fixture_dir(name)
     previous = Dir.pwd
-    previous_glob = ENV["RUBY_MUTATION_TEST_GLOB"]
-    ENV["RUBY_MUTATION_TEST_GLOB"] = glob if glob
+    previous_glob = ENV["SABAKU_TEST_GLOB"]
+    ENV["SABAKU_TEST_GLOB"] = glob if glob
     Dir.chdir(directory)
     yield directory
   ensure
-    ENV["RUBY_MUTATION_TEST_GLOB"] = previous_glob if defined?(previous_glob) && previous_glob
-    ENV.delete("RUBY_MUTATION_TEST_GLOB") if defined?(previous_glob) && previous_glob.nil?
+    ENV["SABAKU_TEST_GLOB"] = previous_glob if defined?(previous_glob) && previous_glob
+    ENV.delete("SABAKU_TEST_GLOB") if defined?(previous_glob) && previous_glob.nil?
     Dir.chdir(previous) if defined?(previous) && previous
   end
 
@@ -41,7 +41,7 @@ module AdapterTestHelpers
       coverage: true,
       report: :quiet
     }
-    Mutation::Config.default(**defaults.merge(overrides))
+    Sabaku::Config.default(**defaults.merge(overrides))
   end
 
   # Mutants are Data objects with byte offsets; find the (unique) original text
@@ -52,7 +52,7 @@ module AdapterTestHelpers
     offset = text.index(original.b)
     raise ArgumentError, "#{original.inspect} not found in #{path}" if offset.nil?
 
-    Mutation::Mutant.new(
+    Sabaku::Mutant.new(
       path: path,
       operator: operator,
       line: line,

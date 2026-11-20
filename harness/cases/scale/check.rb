@@ -272,7 +272,7 @@ practical_case("scale") do |k|
 
     # Each `./bin/rt` call is a fresh container, so the engine is cold in the sense that
     # matters: no cache entry from an earlier run can shorten either side.
-    cold = { "RUBY_MUTATION_NO_CACHE" => "1" }
+    cold = { "SABAKU_NO_CACHE" => "1" }
 
     # ---- 1. the cheap run ---------------------------------------------------------
     cheap_seconds = k.elapsed do

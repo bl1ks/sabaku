@@ -1,6 +1,6 @@
 ---
 name: formal-verification
-description: Re-verify the mutation engine's algebra and pool protocol. Use when editing lib/mutation/analyzer.rb, aridity.rb, operators/, selection, coverage_map.rb, report.rb, cache.rb, or runner.rb, or when asked whether the engine is correct, deterministic, or safe under concurrency.
+description: Re-verify the mutation engine's algebra and pool protocol. Use when editing lib/sabaku/analyzer.rb, aridity.rb, operators/, selection, coverage_map.rb, report.rb, cache.rb, or runner.rb, or when asked whether the engine is correct, deterministic, or safe under concurrency.
 ---
 
 # Formal verification of the mutation engine
@@ -53,16 +53,16 @@ fault variant that stops violating its invariant, or a finding that stops reprod
 
 ## Coverage record
 
-- `formal/lean/Mutation/Basic.lean`: `Mutant#splice`, `Source#slice`, the no-op condition.
-- `formal/lean/Mutation/Operators.lean`: the operator tables (`Aor`, `Ror`, `Lcr`, `Sbr`,
+- `formal/lean/Sabaku/Basic.lean`: `Mutant#splice`, `Source#slice`, the no-op condition.
+- `formal/lean/Sabaku/Operators.lean`: the operator tables (`Aor`, `Ror`, `Lcr`, `Sbr`,
   `Uoi`, `Bool`, `Str`, `Assign`, `Cond`, `Literal`, `Return`, `Control`), the `emitted` no-op filter that
   `Selector` and `Call` rely on, `Sbr.removable_indices`,
   `Mutant#initialize`'s id fields.
-- `formal/lean/Mutation/Aridity.lean`: `Aridity#arid?`'s recursion and ancestor scans,
+- `formal/lean/Sabaku/Aridity.lean`: `Aridity#arid?`'s recursion and ancestor scans,
   `Analyzer#walk`'s pruning.
-- `formal/lean/Mutation/Selection.lean`: `select_per_line`'s group draw and stability.
-- `formal/lean/Mutation/Score.lean`: `Report#score`, `Result#counted?`.
-- `formal/lean/Mutation/Cache.lean`: `Cache#fetch`, `Cache#store`, `Cache#load_entries`,
+- `formal/lean/Sabaku/Selection.lean`: `select_per_line`'s group draw and stability.
+- `formal/lean/Sabaku/Score.lean`: `Report#score`, `Result#counted?`.
+- `formal/lean/Sabaku/Cache.lean`: `Cache#fetch`, `Cache#store`, `Cache#load_entries`,
   `Runner#persist_results`.
 - `formal/quint/runner.qnt`: `Runner#run_pool`, `prepare_entry`'s uncovered and weak paths, `finish_job`,
   `classify`, `halt_fast_fail`, `mark_skipped`, `attribute_unmeasured`, `measure_first_load`'s

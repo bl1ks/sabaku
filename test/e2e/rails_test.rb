@@ -12,23 +12,23 @@ require "timeout"
 # fixture test that writes to SQLite.
 #
 # Rails, sqlite3 and mysql2 are not in the default image, so this test skips
-# unless all three are loadable. `ruby-mutation:rails` has them (build it from
+# unless all three are loadable. `sabaku:rails` has them (build it from
 # docker/rails.Dockerfile), and bin/check-rails runs this test and the MySQL one
 # against a throwaway server:
 #
 #   docker run --rm -v "$PWD:/app" -w /app --user "$(id -u):$(id -g)" \
-#     -e HOME=/tmp ruby-mutation:rails ruby -Ilib -Itest test/e2e/rails_test.rb
+#     -e HOME=/tmp sabaku:rails ruby -Ilib -Itest test/e2e/rails_test.rb
 class RailsCampaignTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
   APP = File.join(ROOT, "fixture", "rails_app")
-  BIN = File.join(ROOT, "bin", "mutation")
+  BIN = File.join(ROOT, "bin", "sabaku")
 
   def setup
     skip "rails, sqlite3 and mysql2 are not installed" unless rails_available?
   end
 
   def test_campaign_boots_rails_eager_loads_and_runs_a_database_test
-    Dir.mktmpdir("ruby-mutation-rails") do |dir|
+    Dir.mktmpdir("sabaku-rails") do |dir|
       app = File.join(dir, "app")
       FileUtils.cp_r(APP, app)
 
@@ -37,7 +37,7 @@ class RailsCampaignTest < Minitest::Test
       assert_equal 0, status.exitstatus, "db:schema:load failed: #{err}"
 
       out, err, status = run!(app, RbConfig.ruby, BIN, "run", "app/models",
-                              "--setup=mutation.rb", "--jobs=2", "--timeout=5",
+                              "--setup=sabaku.rb", "--jobs=2", "--timeout=5",
                               "--report=json")
       payload = JSON.parse(out.lines.last)
 

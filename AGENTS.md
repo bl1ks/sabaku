@@ -1,13 +1,13 @@
 # Repository notes for agents
 
-ruby-mutation mutates one Ruby AST node at a time and runs only the tests that cover the mutated
+sabaku mutates one Ruby AST node at a time and runs only the tests that cover the mutated
 line. `README.md` says what the tool does. `docs/DESIGN.md` is the contract the engine is built
 against: value objects, the operator protocol, the mutant lifecycle, the aridity rules. Code
 against that contract, and say so in the commit when a change has to deviate.
 
 ## Run the gates
 
-The host has no Ruby. `bin/rt` runs one command inside `ruby-mutation:dev` with this repository
+The host has no Ruby. `bin/rt` runs one command inside `sabaku:dev` with this repository
 mounted at `/app`, so paths inside a `bin/rt` payload are container paths. The `bin/*` wrappers
 themselves run on the host.
 
@@ -18,9 +18,9 @@ themselves run on the host.
 | `./bin/formal` | Lean proofs, the Lean/Ruby replay, the Quint model at six steps. It runs `lake` and `quint` on the host, not in the container |
 | `./bin/check-rails` | Rails on SQLite and MySQL, against a throwaway `mysql:8.4` container |
 
-`bin/rt` needs its image once: `docker build -f docker/Dockerfile -t ruby-mutation:dev .`.
+`bin/rt` needs its image once: `docker build -f docker/Dockerfile -t sabaku:dev .`.
 `bin/check-rails` needs the Rails image first:
-`docker build -f docker/rails.Dockerfile -t ruby-mutation:rails .`.
+`docker build -f docker/rails.Dockerfile -t sabaku:rails .`.
 
 For the fast loop, run one file:
 
@@ -28,8 +28,8 @@ For the fast loop, run one file:
 ./bin/rt ruby -Ilib -Itest test/e2e/campaign_test.rb
 ```
 
-Two environment variables matter. `RUBY_MUTATION_TEST_GLOB` overrides test discovery.
-`RUBY_MUTATION_NO_CACHE=1` ignores the result cache, and a test that measures a campaign sets it,
+Two environment variables matter. `SABAKU_TEST_GLOB` overrides test discovery.
+`SABAKU_NO_CACHE=1` ignores the result cache, and a test that measures a campaign sets it,
 because a warm cache hides a runner regression.
 
 ## Rules the code depends on
@@ -44,8 +44,8 @@ because a warm cache hides a runner regression.
 - A compound node is arid when every child is arid. A new expert rule only adds aridity.
 - Value objects are frozen `Data` objects with `#to_h`, and the JSON report uses that shape.
 - The parser is Prism and the test framework is minitest. The gem has no runtime dependency.
-- `lib/mutation/runner.rb` owns the pool. Fork isolation is the default. The first-load surface in
-  `lib/mutation/runtime/` is the fallback for a file that cannot be loaded twice.
+- `lib/sabaku/runner.rb` owns the pool. Fork isolation is the default. The first-load surface in
+  `lib/sabaku/runtime/` is the fallback for a file that cannot be loaded twice.
 - Files under `lib/` and `test/` open with `# frozen_string_literal: true`. Comments explain the
   reason for a non-obvious choice, not what the next line does.
 
@@ -66,7 +66,7 @@ because a warm cache hides a runner regression.
 
 ```
 bin/            rt (the container runner), check, practical, formal, check-rails
-lib/mutation/   the engine: config, source, mutant, analyzer, aridity, operators/, weak,
+lib/sabaku/     the engine: config, source, mutant, analyzer, aridity, operators/, weak,
                 coverage_map, test_selection, adapters/minitest, runner, report, cache, cli
 test/           core, adapters, cli, e2e; small projects under test/**/fixtures
 fixture/        projects the tests and the docs run against

@@ -9,13 +9,13 @@ other is a method no test calls at all.
 From the repository root, inside the dev container:
 
 ```sh
-./bin/rt sh -c 'cd example && ruby ../bin/mutation run'
+./bin/rt sh -c 'cd example && ruby ../bin/sabaku run'
 ```
 
-With the gem installed, run `mutation run` from this directory instead. The output is the same.
+With the gem installed, run `sabaku run` from this directory instead. The output is the same.
 
 ```
-ruby-mutation 0.1.0  files=1  mutants=5  jobs=1
+sabaku 0.1.0  files=1  mutants=5  jobs=1
 
   killed         3   60.0%
   survived       1   20.0%  <- your tests did not notice these
@@ -55,7 +55,7 @@ One uncovered line:
   never scored, which is why the score is 3 of 4 and not 3 of 5. A line without coverage cannot be
   measured, so the engine says so instead of counting it as a survivor.
 
-Run `mutation list` to see the five mutants without executing them. Pass `--min-score=100` and the
+Run `sabaku list` to see the five mutants without executing them. Pass `--min-score=100` and the
 campaign exits 1 while any gap remains, so CI can gate on the number.
 
 ## Close the gaps
@@ -79,7 +79,7 @@ end
 Run the campaign again:
 
 ```
-ruby-mutation 0.1.0  files=1  mutants=5  jobs=1
+sabaku 0.1.0  files=1  mutants=5  jobs=1
 
   killed         5  100.0%
   survived       0    0.0%  <- your tests did not notice these

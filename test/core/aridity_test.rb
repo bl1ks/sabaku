@@ -7,7 +7,7 @@ class AridityTest < Minitest::Test
   include CoreTestSupport
 
   def setup
-    @aridity = Mutation::Aridity.new
+    @aridity = Sabaku::Aridity.new
   end
 
   def arid?(source, type, name: nil)

@@ -1,4 +1,4 @@
-/// The mutation campaign's pool, as `lib/mutation/runner.rb` runs it.
+/// The mutation campaign's pool, as `lib/sabaku/runner.rb` runs it.
 ///
 /// Preparation decides per mutant: no covering test means `uncovered` with no child, otherwise
 /// the mutant queues. At most `W` children run. A running child ends in exactly one of four
@@ -31,7 +31,7 @@
 /// probe-eligible; offering the decision for any new mutant over-approximates the schedules, and
 /// `INV_weak_has_no_child` is the promise it must keep.
 ///
-/// The exit code policy (`error` above zero exits 2, `lib/mutation/cli.rb`) is not modelled here;
+/// The exit code policy (`error` above zero exits 2, `lib/sabaku/cli.rb`) is not modelled here;
 /// `bin/check` covers the CLI.
 ///
 /// The deadline race is kept as the freedom to take the timeout transition from any running

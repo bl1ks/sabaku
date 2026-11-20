@@ -74,7 +74,7 @@ module TimeoutCase
     rows.select do |row|
       next false if row[:pid] == Process.pid
 
-      row[:pgrp] == pgid || row[:command].include?("bin/mutation")
+      row[:pgrp] == pgid || row[:command].include?("bin/sabaku")
     end
   end
 

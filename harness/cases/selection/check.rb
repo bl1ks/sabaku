@@ -14,7 +14,7 @@ require_relative "../../lib/support"
 # test for every mutant. Both sides are cold and share `--per-line=all --timeout=30`, so
 # neither the cache nor the deadline can explain a difference.
 practical_case("selection") do |k|
-  cold = { "RUBY_MUTATION_NO_CACHE" => "1" }
+  cold = { "SABAKU_NO_CACHE" => "1" }
   # One candidate set, two ways to measure it. The oracle differs only in how it selects.
   run_args = ["run", "lib", "--per-line=all", "--timeout=30", "--report=json"]
 

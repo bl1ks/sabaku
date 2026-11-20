@@ -2,7 +2,7 @@
 
 $LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
 
-require "mutation"
+require "sabaku"
 require "minitest/autorun"
 
 module FixtureHelper

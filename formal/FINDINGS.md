@@ -8,17 +8,17 @@ The before and after blocks are excerpts from the commands shown.
 
 ## 1. `--diff` filtered on the node's first line, but mutants are reported at their own line
 
-**Observation.** `lib/mutation/analyzer.rb:71` kept a candidate when the diff covered
-`node.location.start_line`. `lib/mutation/analyzer.rb:104` reported the mutant at
+**Observation.** `lib/sabaku/analyzer.rb:71` kept a candidate when the diff covered
+`node.location.start_line`. `lib/sabaku/analyzer.rb:104` reported the mutant at
 `replacement.line`, and `Sbr` sets that to the removed statement's line
-(`lib/mutation/operators/sbr.rb:33`). For a statement block the node starts at its first
+(`lib/sabaku/operators/sbr.rb:33`). For a statement block the node starts at its first
 statement, so the filter and the report disagreed.
 
 With `{"lib/m.rb": [[2, 2]]}` and `--per-line=99`, the pre-fix run listed six mutants, one of them
 the `SBR` for line 3:
 
 ```
-$ mutation list --diff=first.json --per-line=99 lib/m.rb
+$ sabaku list --diff=first.json --per-line=99 lib/m.rb
 lib/m.rb  (6)
       3  sbr              SBR: a = x + 1 ...
       2  sbr              SBR: a = x + 1 ...
@@ -30,7 +30,7 @@ The opposite direction also occurred. With `{"lib/m.rb": [[3, 3]]}` the pre-fix 
 mutants, all `AOR`, and no `SBR` at all, because the block's first line was outside the diff:
 
 ```
-$ mutation list --diff=second.json --per-line=99 lib/m.rb
+$ sabaku list --diff=second.json --per-line=99 lib/m.rb
 lib/m.rb  (4)
       3  aor              AOR: a * 2 -> a % 2
       ...
@@ -45,24 +45,24 @@ it, and `build_mutant` takes it as an argument. The filter and the report now re
 the line-3 `SBR`:
 
 ```
-$ mutation list --diff=first.json --per-line=99 lib/m.rb
+$ sabaku list --diff=first.json --per-line=99 lib/m.rb
 lib/m.rb  (5)
       2  sbr              SBR: a = x + 1 ...
       ...
-$ mutation list --diff=second.json --per-line=99 lib/m.rb
+$ sabaku list --diff=second.json --per-line=99 lib/m.rb
 lib/m.rb  (5)
       3  sbr              SBR: a = x + 1 ...
       ...
 ```
 
-## 2. `mutation run --help` printed the option table and then ran a campaign
+## 2. `sabaku run --help` printed the option table and then ran a campaign
 
-**Observation.** `lib/mutation/cli.rb:164` threw `:help` with no value, so `catch(:help)`
-evaluated to `nil`. `lib/mutation/cli.rb:171` compared `caught == :help`, which is never true, so
+**Observation.** `lib/sabaku/cli.rb:164` threw `:help` with no value, so `catch(:help)`
+evaluated to `nil`. `lib/sabaku/cli.rb:171` compared `caught == :help`, which is never true, so
 `parse` returned the options hash and `run_command` continued.
 
 ```
-$ mutation run --help
+$ sabaku run --help
 usage: mutation <run|list|doctor> [paths] [options]
         --adapter=NAME               minitest or rspec
         ...
@@ -79,8 +79,8 @@ after printing the table.
 
 ## 3. The terminal rounded the score to one decimal, the `--min-score` gate did not
 
-**Observation.** `lib/mutation/report.rb:67` printed `score * 100` with `%5.1f`, and
-`lib/mutation/cli.rb:88` compared the unrounded `report.score * 100`. 3,999 killed and 1,001
+**Observation.** `lib/sabaku/report.rb:67` printed `score * 100` with `%5.1f`, and
+`lib/sabaku/cli.rb:88` compared the unrounded `report.score * 100`. 3,999 killed and 1,001
 survived is 79.98%, and the pre-fix run both printed `80.0%` and exited 1:
 
 ```
@@ -106,7 +106,7 @@ A run whose reported score is 79.9 exits 1.
 
 ## 4. The cache wrote a format version and never read it
 
-**Observation.** `lib/mutation/cache.rb:24` defined `FORMAT_VERSION`, `:106` wrote `"version"`,
+**Observation.** `lib/sabaku/cache.rb:24` defined `FORMAT_VERSION`, `:106` wrote `"version"`,
 and `:127` read only the `entries` object. A file with version 99 loaded as if it were current:
 
 ```

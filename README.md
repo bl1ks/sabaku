@@ -1,4 +1,4 @@
-# ruby-mutation
+# sabaku
 
 Mutation testing for minitest suites. It rewrites one AST node of your source at a time, runs
 **only the tests that cover that line**, and reports the mutants your suite failed to notice.
@@ -10,7 +10,7 @@ Mutation Testing at Google"*, ICSE-SEIP 2018) and drops the parts that cost more
 | --- | --- |
 | Mutate only the lines a change touches | `--diff=FILE.json` restricts mutants to listed lines |
 | Never mutate a line without coverage | a mutant with no covering test is `uncovered`, never run, never scored |
-| Suppress *arid* nodes | `Mutation::Aridity`, Ruby rules, recursive over compound nodes |
+| Suppress *arid* nodes | `Sabaku::Aridity`, Ruby rules, recursive over compound nodes |
 | Spend the line on the best operator, not a random one | `Registry::PRODUCTIVITY`, earliest offset as the tie break |
 | A mutant is a place in the code, not a byte range | id hashes path, scope, AST path, operator and replacement |
 | A survivor no test ever saw is not the same as one a test missed | the dry-run probe pass splits `not_infected` from `not_detected` |
@@ -19,7 +19,7 @@ Mutation Testing at Google"*, ICSE-SEIP 2018) and drops the parts that cost more
 
 ```ruby
 # Gemfile
-gem "ruby-mutation", require: false
+gem "sabaku", require: false
 ```
 
 Requires Ruby 3.2 or newer. Prism (the parser) ships with Ruby from 3.3. Verified against
@@ -29,20 +29,20 @@ minitest 5.25 and 6.1 on Ruby 3.4.12.
 
 ```sh
 # from your project root: minitest suite in test/, sources in lib/
-mutation run
+sabaku run
 
 # only mutate the lines in a diff
-mutation run --diff=changed_lines.json
+sabaku run --diff=changed_lines.json
 
 # what would run, without running it
-mutation list
+sabaku list
 
 # environment check
-mutation doctor
+sabaku doctor
 ```
 
 ```
-ruby-mutation 0.1.0  files=1  mutants=11  jobs=1
+sabaku 0.1.0  files=1  mutants=11  jobs=1
 
   killed         8   72.7%
   survived       2   18.2%  <- your tests did not notice these
@@ -65,7 +65,7 @@ either surface) is reported as `skipped` with the reason, stays out of the score
 fail the run:
 
 ```sh
-mutation run --min-score=70 --report=json --output=mutation.json
+sabaku run --min-score=70 --report=json --output=mutation.json
 ```
 
 The reported score is printed at one decimal and `--min-score` compares that same value, so the
@@ -99,8 +99,8 @@ tier has no test at all: the suite only exercises the ten-item tier.
 | `--limit=N` | none | cap the mutant count |
 
 Run it from the project root. `lib` and `test` are put on `$LOAD_PATH`, and test files
-are discovered with `test/**/*_test.rb`. Set `RUBY_MUTATION_TEST_GLOB`
-to override the pattern. Set `RUBY_MUTATION_NO_CACHE=1` to ignore the result cache.
+are discovered with `test/**/*_test.rb`. Set `SABAKU_TEST_GLOB`
+to override the pattern. Set `SABAKU_NO_CACHE=1` to ignore the result cache.
 
 A mutant id is `sha1(path, scope, AST path, operator, replacement)`, so moving a method down a
 file keeps its cached verdict. Editing the method changes the id of every mutant inside it, which

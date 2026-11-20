@@ -16,7 +16,7 @@ class MutantTest < Minitest::Test
   def mutant(replacement: "a - b", start_offset: @node.location.start_offset,
              end_offset: @node.location.end_offset, path: "lib/pricing.rb", id: nil,
              scope: "top", ast_path: "1/1")
-    Mutation::Mutant.new(
+    Sabaku::Mutant.new(
       id: id,
       path: path,
       operator: :aor,
@@ -67,7 +67,7 @@ class MutantTest < Minitest::Test
     text = "π = 1\ntotal = a + b\n"
     built = source(text, "lib/unicode.rb")
     node = built.flat_nodes.find { |candidate| candidate.is_a?(Prism::CallNode) && candidate.name == :+ }
-    target = Mutation::Mutant.new(
+    target = Sabaku::Mutant.new(
       path: built.rel_path,
       operator: :aor,
       line: node.location.start_line,
@@ -99,7 +99,7 @@ class MutantTest < Minitest::Test
     assert_equal "CallNode", hash[:node_kind]
     assert_equal built.start_offset, hash[:start_offset]
     assert_equal built.end_offset, hash[:end_offset]
-    assert_equal built, Mutation::Mutant.new(**hash)
+    assert_equal built, Sabaku::Mutant.new(**hash)
   end
 
   def test_value_is_frozen

@@ -19,7 +19,7 @@ class DiffTest < Minitest::Test
       -gone
     DIFF
 
-    assert_equal({ "lib/a.rb" => [3..4] }, Mutation::Diff.parse(text))
+    assert_equal({ "lib/a.rb" => [3..4] }, Sabaku::Diff.parse(text))
   end
 
   def test_deletion_only_hunks_change_nothing_in_the_new_file
@@ -32,27 +32,27 @@ class DiffTest < Minitest::Test
       -c
     DIFF
 
-    assert_equal({}, Mutation::Diff.parse(text))
+    assert_equal({}, Sabaku::Diff.parse(text))
   end
 
   def test_quoted_paths_are_unquoted
     text = "--- \"a/lib/a.rb\"\n+++ \"b/lib/a b.rb\"\n@@ -1 +1 @@\n"
-    assert_equal({ "lib/a b.rb" => [1..1] }, Mutation::Diff.parse(text))
+    assert_equal({ "lib/a b.rb" => [1..1] }, Sabaku::Diff.parse(text))
   end
 
   def test_intersection_keeps_only_lines_both_filters_cover
     left = { "lib/a.rb" => [1..5, 9..10] }
     right = { "lib/a.rb" => [3..9], "lib/b.rb" => [1..2] }
 
-    assert_equal({ "lib/a.rb" => [3..5, 9..9] }, Mutation::Diff.intersect(left, right))
-    assert_equal right, Mutation::Diff.intersect(nil, right)
-    assert_equal left, Mutation::Diff.intersect(left, nil)
+    assert_equal({ "lib/a.rb" => [3..5, 9..9] }, Sabaku::Diff.intersect(left, right))
+    assert_equal right, Sabaku::Diff.intersect(nil, right)
+    assert_equal left, Sabaku::Diff.intersect(left, nil)
   end
 
   def test_git_ranges_reads_the_working_tree_against_a_revision
     skip "git is not installed" unless system("git", "--version", out: File::NULL, err: File::NULL)
 
-    Dir.mktmpdir("ruby-mutation-diff") do |dir|
+    Dir.mktmpdir("sabaku-diff") do |dir|
       Dir.chdir(dir) do
         run_git("init", "-q")
         run_git("config", "user.email", "test@example.com")
@@ -65,10 +65,10 @@ class DiffTest < Minitest::Test
         # it. Turning maintenance off for this test keeps the process table clean.
         run_git("-c", "maintenance.auto=false", "-c", "gc.auto=0", "commit", "-qm", "one")
 
-        assert_equal({}, Mutation::Diff.git_ranges("HEAD"))
+        assert_equal({}, Sabaku::Diff.git_ranges("HEAD"))
 
         File.write("lib/a.rb", "def a\n  1 + 2\nend\n")
-        assert_equal({ "lib/a.rb" => [2..2] }, Mutation::Diff.git_ranges("HEAD"))
+        assert_equal({ "lib/a.rb" => [2..2] }, Sabaku::Diff.git_ranges("HEAD"))
       end
     end
   ensure

@@ -10,7 +10,7 @@ require "digest"
 require "fileutils"
 
 $LOAD_PATH.unshift(File.expand_path("../../lib", __dir__))
-require "mutation"
+require "sabaku"
 
 ROOT = File.expand_path("../..", __dir__)
 OUT = File.join(ROOT, "formal", "out")
@@ -21,9 +21,9 @@ SOURCES = [
   "formal/replay/corpus/kitchen_sink.rb"
 ].freeze
 
-CONFIG = Mutation::Config.default(
+CONFIG = Sabaku::Config.default(
   paths: SOURCES,
-  operators: Mutation::Operator::Registry.ids,
+  operators: Sabaku::Operator::Registry.ids,
   per_line: 2
 )
 
@@ -34,8 +34,8 @@ def bytes(text) = text.bytes.join(",")
 def fake(status) = FakeResult.new(status, nil)
 
 def analyze
-  sources = SOURCES.map { |path| Mutation::Source.new(path, File.read(File.join(ROOT, path))) }
-  [sources, Mutation::Analyzer.new(sources, CONFIG).mutants]
+  sources = SOURCES.map { |path| Sabaku::Source.new(path, File.read(File.join(ROOT, path))) }
+  [sources, Sabaku::Analyzer.new(sources, CONFIG).mutants]
 end
 
 sources, mutants = analyze
@@ -64,7 +64,7 @@ File.open(File.join(OUT, "replay.tsv"), "w") do |out|
                   Array.new(timeout) { fake(:timeout) } +
                   Array.new(uncovered) { fake(:uncovered) } +
                   Array.new(error) { fake(:error) }
-        report = Mutation::Report.new(results, CONFIG)
+        report = Sabaku::Report.new(results, CONFIG)
         expected = (report.score_pct * 10).round
         out.puts ["score", killed, survived, timeout, uncovered, error, expected].join("\t")
       end

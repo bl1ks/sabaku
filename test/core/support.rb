@@ -4,21 +4,21 @@ require "prism"
 
 module CoreTestSupport
   def source(text, path = "test/subject.rb")
-    Mutation::Source.new(path, text)
+    Sabaku::Source.new(path, text)
   end
 
   def operator(id)
-    Mutation::Operator::Registry.fetch(id)
+    Sabaku::Operator::Registry.fetch(id)
   end
 
   def analyze(sources, **overrides)
     list = sources.is_a?(Array) ? sources : [sources]
-    Mutation::Analyzer.new(list, Mutation::Config.default(**overrides)).mutants
+    Sabaku::Analyzer.new(list, Sabaku::Config.default(**overrides)).mutants
   end
 
   def build_mutant(source, node, operator, replacement)
     location = node.location
-    Mutation::Mutant.new(
+    Sabaku::Mutant.new(
       path: source.rel_path,
       operator: operator.id,
       line: replacement.line || location.start_line,

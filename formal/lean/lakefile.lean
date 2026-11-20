@@ -1,10 +1,10 @@
 import Lake
 open Lake DSL
 
-package mutation where
+package sabaku where
 
 @[default_target]
-lean_lib Mutation where
+lean_lib Sabaku where
 
 lean_exe replay where
-  root := `Mutation.Replay
+  root := `Sabaku.Replay

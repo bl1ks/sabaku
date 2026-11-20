@@ -27,7 +27,7 @@ invariants=(INV_one_result INV_done_has_result INV_uncovered_has_no_child INV_ca
 
 echo "== lean: build and prove =="
 (cd formal/lean && lake build)
-if grep -rnE '\b(sorry|admit)\b' formal/lean/Mutation >/dev/null; then
+if grep -rnE '\b(sorry|admit)\b' formal/lean/Sabaku >/dev/null; then
   echo "formal: an unfinished proof remains in formal/lean" >&2
   exit 1
 fi

@@ -4,7 +4,7 @@ require_relative "../test_helper"
 
 class LoadHazardTest < Minitest::Test
   def sensitive?(text)
-    Mutation::LoadHazard.sensitive?(Prism.parse(text).value)
+    Sabaku::LoadHazard.sensitive?(Prism.parse(text).value)
   end
 
   def test_a_class_of_definitions_runs_nothing_at_load_time
@@ -49,6 +49,6 @@ class LoadHazardTest < Minitest::Test
   end
 
   def test_a_missing_tree_is_not_a_hazard
-    refute Mutation::LoadHazard.sensitive?(nil)
+    refute Sabaku::LoadHazard.sensitive?(nil)
   end
 end

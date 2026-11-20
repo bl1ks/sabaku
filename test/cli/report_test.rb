@@ -13,11 +13,11 @@ class ReportTest < Minitest::Test
   end
 
   def result(status, **kwargs)
-    Mutation::Result.new(mutant: mutant(**kwargs), status: status, duration: 0.01)
+    Sabaku::Result.new(mutant: mutant(**kwargs), status: status, duration: 0.01)
   end
 
   def report(results, overrides = {})
-    Mutation::Report.new(results, Mutation::Config.default(**overrides))
+    Sabaku::Report.new(results, Sabaku::Config.default(**overrides))
   end
 
   def test_score_counts_only_killed_survived_and_timeout
@@ -61,7 +61,7 @@ class ReportTest < Minitest::Test
   end
 
   def test_terminal_names_every_error_with_its_cause
-    errored = Mutation::Result.new(
+    errored = Sabaku::Result.new(
       mutant: mutant(line: 7), status: :error,
       message: "LoadError: cannot load such file -- nope"
     )
@@ -74,7 +74,7 @@ class ReportTest < Minitest::Test
 
   def test_terminal_lists_at_most_ten_errors
     errored = Array.new(12) do |index|
-      Mutation::Result.new(mutant: mutant(line: index + 1), status: :error, message: "boom")
+      Sabaku::Result.new(mutant: mutant(line: index + 1), status: :error, message: "boom")
     end
     text = report(errored).to_terminal
 
@@ -96,7 +96,7 @@ class ReportTest < Minitest::Test
   def test_survivors_are_split_by_why_they_survived
     results = [
       result(:survived, line: 1),
-      Mutation::Result.new(mutant: mutant(line: 2), status: :survived, reason: :not_infected)
+      Sabaku::Result.new(mutant: mutant(line: 2), status: :survived, reason: :not_infected)
     ]
     doc = report(results)
 

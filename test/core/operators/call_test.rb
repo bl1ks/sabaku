@@ -51,7 +51,7 @@ class CallTest < Minitest::Test
     assert_empty replacements("a&.foo\n")
     # A file that does not parse has no offsets to mutate, so Source refuses it
     # outright rather than letting the operators walk a repaired tree.
-    error = assert_raises(Mutation::Error) { source("f(\n") }
+    error = assert_raises(Sabaku::Error) { source("f(\n") }
     assert_includes error.message, "test/subject.rb:1"
     assert_includes error.message, "does not parse"
   end

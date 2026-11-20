@@ -10,7 +10,7 @@ class RunnerTest < Minitest::Test
   include AdapterTestHelpers
 
   def setup
-    @tmpdir = Dir.mktmpdir("ruby-mutation-runner-test")
+    @tmpdir = Dir.mktmpdir("sabaku-runner-test")
   end
 
   def teardown
@@ -39,7 +39,7 @@ class RunnerTest < Minitest::Test
   end
 
   def tiny_coverage_map
-    map = Mutation::CoverageMap.empty
+    map = Sabaku::CoverageMap.empty
     map.record("CalcTest#test_add", { "lib/calc.rb" => [4, 5, 6, 9] })
     map
   end
@@ -50,8 +50,8 @@ class RunnerTest < Minitest::Test
       mutants ||= build_tiny_mutants(root)
       config = tiny_config(isolation: isolation, jobs: jobs, timeout: timeout,
                            coverage: coverage)
-      adapter = Mutation::Adapters::MinitestAdapter.new
-      Mutation::Runner.new(config, analyzer: nil, adapter: adapter, coverage_map: map).call(mutants)
+      adapter = Sabaku::Adapters::MinitestAdapter.new
+      Sabaku::Runner.new(config, analyzer: nil, adapter: adapter, coverage_map: map).call(mutants)
     end
   end
 
@@ -87,7 +87,7 @@ class RunnerTest < Minitest::Test
   def test_coverage_disabled_runs_all_tests
     # With coverage off there is no line map to select from, so every mutant
     # runs the whole suite and the "unused" method mutant is a survivor.
-    results = run_tiny(isolation: :fork, coverage: false, map: Mutation::CoverageMap.empty)
+    results = run_tiny(isolation: :fork, coverage: false, map: Sabaku::CoverageMap.empty)
 
     assert_equal %i[killed survived survived], results.map(&:status)
     refute_includes results.map(&:status), :uncovered
@@ -98,13 +98,13 @@ class RunnerTest < Minitest::Test
       mutant = build_mutant(root: root, path: "lib/loop.rb", line: 5,
                             original: "false", replacement: "true",
                             operator: :bool, node_kind: "FalseNode")
-      map = Mutation::CoverageMap.empty
+      map = Sabaku::CoverageMap.empty
       map.record("LoopTest#test_spin", { "lib/loop.rb" => [4, 5, 6, 7] })
       config = tiny_config(isolation: :fork, timeout: 0.3)
-      adapter = Mutation::Adapters::MinitestAdapter.new
+      adapter = Sabaku::Adapters::MinitestAdapter.new
 
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      results = Mutation::Runner.new(config, analyzer: nil, adapter: adapter,
+      results = Sabaku::Runner.new(config, analyzer: nil, adapter: adapter,
                                              coverage_map: map).call([mutant])
       elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
 
@@ -127,17 +127,17 @@ class RunnerTest < Minitest::Test
       mutants = build_tiny_mutants(root).first(2)
       config = tiny_config(isolation: :fork)
       map = tiny_coverage_map
-      adapter = Mutation::Adapters::MinitestAdapter.new
+      adapter = Sabaku::Adapters::MinitestAdapter.new
 
-      first = Mutation::Runner.new(config, analyzer: nil, adapter: adapter,
+      first = Sabaku::Runner.new(config, analyzer: nil, adapter: adapter,
                                            coverage_map: map).call(mutants)
       assert_equal %i[killed survived], first.map(&:status)
       assert_equal [5, 9], first.map { |result| result.mutant.line }
       assert_operator first.map(&:duration).min, :>, 0
-      cache_file = File.join(@tmpdir, ".mutation-cache.json")
+      cache_file = File.join(@tmpdir, ".sabaku-cache.json")
       assert_path_exists cache_file
 
-      replayed = Mutation::Runner.new(config, analyzer: nil, adapter: adapter,
+      replayed = Sabaku::Runner.new(config, analyzer: nil, adapter: adapter,
                                                coverage_map: map).call(mutants)
       assert_equal %i[killed survived], replayed.map(&:status)
       assert_equal [0.0, 0.0], replayed.map(&:duration)
@@ -150,16 +150,16 @@ class RunnerTest < Minitest::Test
       mutants = build_tiny_mutants(root).first(2)
       config = tiny_config(isolation: :fork)
       map = tiny_coverage_map
-      adapter = Mutation::Adapters::MinitestAdapter.new
+      adapter = Sabaku::Adapters::MinitestAdapter.new
 
-      ENV["RUBY_MUTATION_NO_CACHE"] = "1"
+      ENV["SABAKU_NO_CACHE"] = "1"
       begin
-        first = Mutation::Runner.new(config, analyzer: nil, adapter: adapter,
+        first = Sabaku::Runner.new(config, analyzer: nil, adapter: adapter,
                                               coverage_map: map).call(mutants)
-        second = Mutation::Runner.new(config, analyzer: nil, adapter: adapter,
+        second = Sabaku::Runner.new(config, analyzer: nil, adapter: adapter,
                                                coverage_map: map).call(mutants)
       ensure
-        ENV.delete("RUBY_MUTATION_NO_CACHE")
+        ENV.delete("SABAKU_NO_CACHE")
       end
 
       assert_equal %i[killed survived], first.map(&:status)
@@ -175,8 +175,8 @@ class RunnerTest < Minitest::Test
                               replacement: '"other"', operator: :str,
                               node_kind: "StringNode")
       config = tiny_config(fail_fast: true, jobs: 1)
-      adapter = Mutation::Adapters::MinitestAdapter.new
-      results = Mutation::Runner.new(config, analyzer: nil, adapter: adapter,
+      adapter = Sabaku::Adapters::MinitestAdapter.new
+      results = Sabaku::Runner.new(config, analyzer: nil, adapter: adapter,
                                      coverage_map: tiny_coverage_map).call(mutants)
 
       assert_equal %i[killed survived uncovered skipped], results.map(&:status)
@@ -187,20 +187,20 @@ class RunnerTest < Minitest::Test
 
   def test_hooks_run_in_the_documented_order
     log = File.join(@tmpdir, "hooks.log")
-    setup_path = File.join(@tmpdir, "mutation.rb")
+    setup_path = File.join(@tmpdir, "sabaku.rb")
     File.write(setup_path, <<~RUBY)
-      env "MUTATION_HOOK_TEST" => "on"
-      after_boot { Mutation::RunnerTestHooks.record(#{log.inspect}, "after_boot") }
-      before_fork { Mutation::RunnerTestHooks.record(#{log.inspect}, "before_fork") }
-      child_start { |index| Mutation::RunnerTestHooks.record(#{log.inspect}, "child_start:\#{index}") }
-      before_test_run { Mutation::RunnerTestHooks.record(#{log.inspect}, "before_test_run") }
+      env "SABAKU_HOOK_TEST" => "on"
+      after_boot { Sabaku::RunnerTestHooks.record(#{log.inspect}, "after_boot") }
+      before_fork { Sabaku::RunnerTestHooks.record(#{log.inspect}, "before_fork") }
+      child_start { |index| Sabaku::RunnerTestHooks.record(#{log.inspect}, "child_start:\#{index}") }
+      before_test_run { Sabaku::RunnerTestHooks.record(#{log.inspect}, "before_test_run") }
     RUBY
 
     in_project("tiny_minitest", glob: "test/*_case.rb") do
-      config = tiny_config(setup: Mutation.setup(setup_path), setup_path: setup_path,
-                           env: { "MUTATION_HOOK_TEST" => "on" })
-      adapter = Mutation::Adapters::MinitestAdapter.new
-      Mutation::Runner.new(config, analyzer: nil, adapter: adapter,
+      config = tiny_config(setup: Sabaku.setup(setup_path), setup_path: setup_path,
+                           env: { "SABAKU_HOOK_TEST" => "on" })
+      adapter = Sabaku::Adapters::MinitestAdapter.new
+      Sabaku::Runner.new(config, analyzer: nil, adapter: adapter,
                            coverage_map: tiny_coverage_map).call(build_tiny_mutants(Dir.pwd))
     end
 
@@ -212,7 +212,7 @@ class RunnerTest < Minitest::Test
 end
 
 # A plain module the setup file can call from a forked child.
-module Mutation
+module Sabaku
   module RunnerTestHooks
     def self.record(path, line)
       File.open(path, "a") { |file| file.puts(line) }

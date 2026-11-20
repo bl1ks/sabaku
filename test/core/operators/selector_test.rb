@@ -24,7 +24,7 @@ class SelectorTest < Minitest::Test
   end
 
   def test_exact_alias_pairs_are_not_offered
-    replacements = Mutation::Operator::Selector::REPLACEMENTS
+    replacements = Sabaku::Operator::Selector::REPLACEMENTS
 
     assert_equal %i[public_send], replacements[:send]
     assert_equal %i[public_send], replacements[:__send__]

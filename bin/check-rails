@@ -3,9 +3,9 @@
 # nonzero on the first failure so a reviewer can trust a single green line.
 set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-image=${RAILS_IMAGE:-ruby-mutation:rails}
-network="ruby-mutation-check-rails-$$"
-mysql="ruby-mutation-check-mysql-$$"
+image=${RAILS_IMAGE:-sabaku:rails}
+network="sabaku-check-rails-$$"
+mysql="sabaku-check-mysql-$$"
 
 cleanup() {
   docker rm -f "$mysql" >/dev/null 2>&1 || true

@@ -16,7 +16,7 @@ require_relative "../../lib/support"
 # and records the other as a note.
 practical_case("stateful") do |k|
   k.copy_project do |dir|
-    cold = { "RUBY_MUTATION_NO_CACHE" => "1" }
+    cold = { "SABAKU_NO_CACHE" => "1" }
     flags = %w[--per-line=all --timeout=30]
 
     first = k.campaign(dir, *flags, env: cold)
