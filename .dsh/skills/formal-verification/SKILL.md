@@ -18,14 +18,16 @@ The engine's pure part is proven in Lean 4 and its concurrent part is model chec
 | `report.rb` | `bin/formal` | `Score.lean` mirrors `score`; `emit.rb` emits the count grid. |
 | `cache.rb` | `bin/formal` | `Cache.lean` mirrors read/write and the version check. |
 | `runner.rb` (pool, classification) | `bin/formal --deep` | Update `runner.qnt` in the same commit. |
+| `runner.rb` (`--kill-matrix` sweep), `kills.rb` | `bin/formal --deep` | Update `matrix.qnt` in the same commit. |
+| `kill_matrix.rb` | `bin/formal` | `KillMatrix.lean` mirrors dominance and the verdicts; `emit.rb` emits the matrix records. |
 | `coverage_map.rb` (ordering) | `bin/check` | Ordering only; the selection proofs do not depend on it. |
 | `adapters/*.rb`, `cli.rb`, `Source`, `Mutant` | `bin/check` only | Not covered here, except `Mutant#splice` via the replay. |
 
 ## Run it
 
 ```
-bin/formal          # about 2 minutes, Quint bound 6 steps
-bin/formal --deep   # about 5 minutes, Quint bound 10 steps (reaches finalize)
+bin/formal          # about 20 minutes, Quint bound 6 steps for both models
+bin/formal --deep   # runner at 10 steps (reaches finalize), matrix at 8 (a complete sweep pass)
 ```
 
 The gate fails on an unfinished proof, a replay mismatch, a violation in the honest model, a
@@ -67,9 +69,14 @@ fault variant that stops violating its invariant, or a finding that stops reprod
 - `formal/quint/runner.qnt`: `Runner#run_pool`, `prepare_entry`'s uncovered and weak paths, `finish_job`,
   `classify`, `halt_fast_fail`, `mark_skipped`, `attribute_unmeasured`, `measure_first_load`'s
   first-load child, `Report#score`'s denominator.
+- `formal/lean/Sabaku/KillMatrix.lean`: `KillMatrix#dominates?`, `Verdict#by`, `Verdict#unique`,
+  the verdict kinds, `Runner#sweep_tail` and `write_row`'s row shape.
+- `formal/quint/matrix.qnt`: `Runner#sweep_killers`, `record_sweep`, `verify_sweeps`,
+  `write_row`, `cached_kills`.
 - `formal/regressions.sh`: the four fixed findings, end to end through the CLI and the library.
 - `formal/replay/emit.rb`: the real `Analyzer` over two fixtures and
-  `formal/replay/corpus/kitchen_sink.rb`, with every operator in `Registry.ids`, `--per-line=2`.
+  `formal/replay/corpus/kitchen_sink.rb`, with every operator in `Registry.ids`, `--per-line=2`;
+  the real `KillMatrix.from` over 200 seeded matrices.
 
 ## Sync commit
 
