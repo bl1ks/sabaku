@@ -13,7 +13,7 @@ Gem::Specification.new do |spec|
     "State of Mutation Testing at Google" (Petrovic & Ivankovic, ICSE-SEIP 2018).
   DESC
   spec.license = "MIT"
-  spec.homepage = "https://github.com/kyusu/sabaku"
+  spec.homepage = "https://github.com/bl1ks/sabaku"
   spec.metadata["rubygems_mfa_required"] = "true"
   spec.required_ruby_version = ">= 3.2"
 
