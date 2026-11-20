@@ -241,9 +241,16 @@ There is no Ruby on the host machine used for this work, so everything runs in t
 ./bin/check                                             # unit + e2e under minitest 5 and 6,
                                                         # packaged gem smoke test,
                                                         # formal regression probes
+./bin/practical                                         # the acceptance harness: eight
+                                                        # projects this engine was not
+                                                        # developed against
 ./bin/rt ruby -Ilib -Itest test/e2e/campaign_test.rb   # end to end against the fixtures
 ./bin/rt sh -c 'cd /app && ruby -Ilib -Itest -e "Dir[\"test/{core,adapters,cli}/**/*_test.rb\"].sort.each { |f| require File.expand_path(f) }"'
 ```
+
+`harness/` is the answer to "is this practical". Each case is a small project with a claim
+written before the engine was allowed to see the result, and `harness/README.md` states the
+criteria, the oracle rules and the rule that a criterion may be tightened but not loosened.
 
 `formal/` proves the engine's pure part in Lean and model-checks the runner's pool in Quint. Its
 regression probes run at the end of `./bin/check`; the proofs need the Lean and Quint toolchain,

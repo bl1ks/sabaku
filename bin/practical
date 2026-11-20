@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Runs the practical acceptance harness in the dev container, one case per process, and
+# exits nonzero when any case is red. Cases and their criteria live in harness/README.md.
+set -euo pipefail
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+exec "$root/bin/rt" ruby harness/run.rb "$@"
