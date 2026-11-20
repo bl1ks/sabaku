@@ -80,7 +80,7 @@ module Sabaku
         @test_ids = []
         @classes.each do |klass|
           test_methods_for(klass).each do |method_name|
-            id = "#{klass.name}##{method_name}"
+            id = "#{safe_class_name(klass)}##{method_name}"
             @test_ids << id
             @id_to_pair[id] = [klass, method_name]
           end
@@ -237,8 +237,8 @@ module Sabaku
         candidates = ::Minitest::Runnable.runnables - @registry_before
 
         ::ObjectSpace.each_object(Class) do |klass|
-          next if klass.name.nil?
           next unless klass < ::Minitest::Test
+          next if safe_class_name(klass).nil?
 
           methods = test_methods_for(klass)
           next if methods.empty?
@@ -255,9 +255,14 @@ module Sabaku
         candidates
           .select { |klass| klass.is_a?(Class) && klass < ::Minitest::Test }
           .reject { |klass| klass == ::Minitest::Test || klass == spec }
-          .reject { |klass| klass.name.nil? || test_methods_for(klass).empty? }
+          .reject { |klass| safe_class_name(klass).nil? || test_methods_for(klass).empty? }
           .uniq
-          .sort_by(&:name)
+          .sort_by { |klass| safe_class_name(klass).to_s }
+      end
+
+      # Module#name, not Class#name: generators like Faker::Travel::Airport.name raise.
+      def safe_class_name(klass)
+        Module.instance_method(:name).bind_call(klass)
       end
 
       def defined_in?(klass, method_name, file_set)
