@@ -252,6 +252,10 @@ There is no Ruby on the host machine used for this work, so everything runs in t
 written before the engine was allowed to see the result, and `harness/README.md` states the
 criteria, the oracle rules and the rule that a criterion may be tightened but not loosened.
 
+`example/` is a cart of 33 lines with a minitest suite, and it ships the campaign output that
+suite produces, so a reader can see a report before reading the design. `AGENTS.md` is the working
+agreement for changes to this repository.
+
 `formal/` proves the engine's pure part in Lean and model-checks the runner's pool in Quint. Its
 regression probes run at the end of `./bin/check`; the proofs need the Lean and Quint toolchain,
 so `./bin/formal` runs them on their own. `formal/README.md` lists what is proven and what is
