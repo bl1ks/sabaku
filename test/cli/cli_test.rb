@@ -310,7 +310,59 @@ class CLITest < Minitest::Test
     end
   end
 
+  def test_kill_matrix_adds_rows_and_keeps_the_exit_code
+    in_project do
+      File.write("lib/tally.rb", "class Tally\n  def self.sum(a, b)\n    a + b\n  end\nend\n")
+      FileUtils.mkdir_p("test")
+      File.write("test/tally_test.rb", <<~RUBY)
+        require "minitest/autorun"
+        require "tally"
+
+        class TallyTest < Minitest::Test
+          def test_a_sum
+            assert_equal 5, Tally.sum(2, 3)
+          end
+
+          def test_b_again
+            assert_equal 4, Tally.sum(2, 2)
+          end
+        end
+      RUBY
+      argv = ["run", "lib/tally.rb", "--operators=aor", "--report=json", "--min-score=100"]
+
+      off_code, off_out, off_err = with_env("SABAKU_NO_CACHE" => "1") { start(argv) }
+      on_code, on_out, on_err = with_env("SABAKU_NO_CACHE" => "1") { start(argv + ["--kill-matrix"]) }
+
+      assert_equal 0, off_code, off_err
+      assert_equal off_code, on_code, on_err
+      off = JSON.parse(off_out.lines.last)
+      on = JSON.parse(on_out.lines.last)
+      assert_equal off["score"], on["score"]
+      assert(off["results"].none? { |result| result.key?("kills") })
+      killed = on["results"].select { |result| result["status"] == "killed" }
+      refute_empty killed
+      killed.each do |result|
+        assert_includes result["kills"]["killers"], result["failed_test"]
+      end
+    end
+  end
+
+  def test_help_lists_the_kill_matrix_flag
+    code, out, = start(["help"])
+
+    assert_equal 0, code
+    assert_includes out, "--kill-matrix"
+  end
+
   private
+
+  def with_env(values)
+    previous = values.keys.to_h { |key| [key, ENV.fetch(key, nil)] }
+    values.each { |key, value| ENV[key] = value }
+    yield
+  ensure
+    previous.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
+  end
 
   def write_test(assertion, basename: "counter", klass: "CounterTest")
     File.write("test/#{basename}_test.rb", <<~RUBY)

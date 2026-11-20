@@ -193,6 +193,9 @@ module Sabaku
         end
         o.on("--[no-]coverage", "select tests by line coverage") { |v| options[:coverage] = v }
         o.on("--[no-]weak", "skip the dry-run probes that decide uninfected survivors") { |v| options[:weak] = v }
+        o.on("--[no-]kill-matrix", "run every selected test against each killed mutant and report redundant tests") do |v|
+          options[:kill_matrix] = v
+        end
         o.on("--isolation=MODE", "fork or process") { |v| options[:isolation] = v.to_sym }
         o.on("--report=FORMAT", "terminal, json, quiet") { |v| options[:report] = v.to_sym }
         o.on("--output=PATH", "write the JSON report here") { |v| options[:output] = v }
@@ -227,7 +230,8 @@ module Sabaku
         overrides[:diff_ranges] = Diff.intersect(overrides[:diff_ranges], changed)
       end
       keys = %i[paths exclude operators jobs timeout per_line diff_ranges
-                coverage isolation report output env requires setup setup_path fail_fast baseline weak]
+                coverage isolation report output env requires setup setup_path fail_fast baseline weak
+                kill_matrix]
       Config.default(**overrides.slice(*keys))
     end
 
@@ -312,6 +316,8 @@ module Sabaku
           --fail-fast                stop at the first surviving mutant
           --[no-]baseline            refuse to score a suite that is already red (default on)
           --[no-]weak                dry-run probes that decide uninfected survivors
+          --kill-matrix              run every selected test against each killed mutant and
+                                     report redundant tests (the score does not change)
           --env=KEY=VALUE            ENV set before the suite loads (repeatable)
           --require=PATH             require after coverage starts, before the tests
           --setup=PATH               Ruby file with boot hooks for Rails and friends
