@@ -19,6 +19,10 @@ module Sabaku
   #     --require, isolation and the timeout (see Fingerprint)
   #
   # A hit skips the child entirely and the runner reports it with duration 0.
+  #
+  # A killed entry may carry `killers`, the --kill-matrix row. The key is optional
+  # rather than a format bump: an older reader ignores it, and an entry without it
+  # still answers the status, so the row is the only thing a sweep has to add.
   # `ENV["SABAKU_NO_CACHE"]` is the kill switch; it is read here rather
   # than added to the frozen Config.
   class Cache
@@ -66,7 +70,7 @@ module Sabaku
       @entries.size
     end
 
-    # -> {status:, failed_test:, message:} | nil
+    # -> {status:, failed_test:, message:, reason:, killers:} | nil
     def fetch(key)
       return nil unless @enabled
 
@@ -79,23 +83,31 @@ module Sabaku
       return nil if status == :uncovered
 
       reason = entry["reason"] || entry[:reason]
+      failed_test = entry["failed_test"] || entry[:failed_test]
       {
         status: status,
-        failed_test: entry["failed_test"] || entry[:failed_test],
+        failed_test: failed_test,
         message: entry["message"] || entry[:message],
-        reason: reason.nil? ? nil : reason.to_sym
+        reason: reason.nil? ? nil : reason.to_sym,
+        killers: killers_of(entry, status, failed_test)
       }
     end
 
-    def store(key, status:, failed_test: nil, message: nil, reason: nil)
+    # A store without `killers` keeps the row already there for the same kill, so a
+    # run without --kill-matrix does not erase what a run with it paid for.
+    def store(key, status:, failed_test: nil, message: nil, reason: nil, killers: nil)
       return nil unless @enabled
 
-      @entries[key.to_s] = {
+      key = key.to_s
+      killers ||= kept_killers(@entries[key], status, failed_test)
+      entry = {
         "status" => status.to_s,
         "failed_test" => failed_test,
         "message" => message,
         "reason" => reason&.to_s
       }
+      entry["killers"] = killers if killers
+      @entries[key] = entry
       @dirty = true
       self
     end
@@ -122,6 +134,23 @@ module Sabaku
     end
 
     private
+
+    # A malformed row loses the row, never the status.
+    def killers_of(entry, status, failed_test)
+      killers = entry["killers"] || entry[:killers]
+      return nil unless status == :killed && killers.is_a?(Array) && !killers.empty?
+      return nil unless killers.all?(String)
+      return nil if failed_test && !killers.include?(failed_test)
+
+      killers
+    end
+
+    def kept_killers(previous, status, failed_test)
+      return nil unless previous.is_a?(Hash) && status.to_s == previous["status"]
+      return nil unless failed_test == previous["failed_test"]
+
+      killers_of(previous, status.to_sym, failed_test)
+    end
 
     def load_entries
       return unless @enabled

@@ -160,6 +160,17 @@ class RunnerKillMatrixTest < Minitest::Test
     assert_equal 3, second[:minus].kills.killers.size
     assert_equal %w[MatrixTest#test_sub_only], second[:sub].kills.killers
     assert_equal 1, File.readlines(@log).size
+
+    third = run_matrix(kill_matrix: true, only: %i[minus sub], record: true)
+
+    assert_equal 1, File.readlines(@log).size, "a cached row should need no sweep"
+    assert_equal second.values.map(&:kills), third.values.map(&:kills)
+
+    run_matrix(kill_matrix: false, only: %i[minus sub])
+    fourth = run_matrix(kill_matrix: true, only: %i[minus sub], record: true)
+
+    assert_equal 1, File.readlines(@log).size, "a run without the flag erased the cached rows"
+    assert_equal second.values.map(&:kills), fourth.values.map(&:kills)
   end
 
   # test_b_loaded_once fails in every fork child, because the child loads load_counter.rb a second

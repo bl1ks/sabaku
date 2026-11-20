@@ -181,7 +181,8 @@ module Sabaku
             duration: 0.0,
             failed_test: hit[:failed_test],
             message: hit[:message],
-            reason: hit[:reason]
+            reason: hit[:reason],
+            kills: cached_kills(hit, selected)
           )
         )
       end
@@ -219,6 +220,15 @@ module Sabaku
           message: "#{e.class}: #{e.message}"
         )
       )
+    end
+
+    # A cached row is only reused when it still fits the selection; otherwise the sweep
+    # pass rebuilds it.
+    def cached_kills(hit, selected)
+      killers = hit[:killers]
+      return nil unless @kill_matrix && killers && (killers - selected).empty?
+
+      Kills.new(tested: selected, killers: killers)
     end
 
     def selected_test_ids(mutant, source)
@@ -1097,11 +1107,13 @@ module Sabaku
         next if entry.first_load
         next unless %i[killed survived].include?(entry.result.status)
 
+        kills = entry.result.kills
         @cache.store(entry.cache_key,
                      status: entry.result.status,
                      failed_test: entry.result.failed_test,
                      message: entry.result.message,
-                     reason: entry.result.reason)
+                     reason: entry.result.reason,
+                     killers: kills&.killed? ? kills.killers : nil)
       end
       @cache.save!
     end
