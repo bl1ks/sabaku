@@ -117,7 +117,7 @@ Each test gets one verdict:
 | `subsumed` | another test kills everything it kills, and more; `by` names the strongest such test |
 | `duplicate` | another test kills exactly the same mutants and sorts first; one test per such group is `kept` |
 | `zero` | selected for a scored mutant and killed none: it runs the code and asserts too little |
-| `idle` | never selected: it covers no mutated line |
+| `idle` | never selected for a killed or survived mutant; a `--fail-fast` stop or an errored mutant can leave a covering test here |
 
 Removing every `subsumed` and `duplicate` test keeps every kill, so the score would not move.
 The kept tests are a cover, not a minimum one. The terminal lists zero-kill tests, redundant
@@ -127,9 +127,10 @@ with tests sorted by id, and a `kills` row on each result.
 The flag never changes a status, the score or the exit code. A sweep that times out, crashes,
 or names a killer that also fails with the file reloaded and no mutation leaves the mutant's
 status alone and gives it no row. The report counts these incomplete rows and marks every test
-one of them selected with `?`, because finishing that row could still change the test's
-verdict. A verdict without `?` cannot be changed by the incomplete rows. Rows are cached, and a
-cache warmed without the flag only pays for the tails.
+one of them selected with `?`; completing that row can still change that test's verdict. A
+`?` test can also become the dominator of a kept test, so while any row is incomplete, read the
+kept list and the unique counts as advice, not a settled answer. Rows are cached, and a cache
+warmed without the flag only pays for the tails.
 
 A mutant id is `sha1(path, scope, AST path, operator, replacement)`, so moving a method down a
 file keeps its cached verdict. Editing the method changes the id of every mutant inside it, which

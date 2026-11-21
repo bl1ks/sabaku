@@ -35,11 +35,12 @@ module Sabaku
   #   kill check one test that failed, with the target file loaded a second time
   #              and no mutation, for files that run code at load time
   #
-  # Under --kill-matrix one more pass follows the pool. Each killed mutant gets a
-  # second child that runs the selected tests the first child never reached, so
-  # the first failure plus that tail is every test that kills it. The pass only
-  # ever adds a row to a result, never changes its status, so the score is the
-  # same with the flag on or off.
+  # Under --kill-matrix one more pass follows the pool. A killed mutant whose first
+  # child stopped at a failure gets a second child that runs the selected tests the
+  # first child never reached, so the first failure plus that tail is every test
+  # that kills it. A cached row, or a failure at the end of the selection, needs no
+  # child. The pass only ever adds a row to a result, never changes its status, so
+  # the score is the same with the flag on or off.
   #
   # The parent preloads the adapter once, then forks one child per mutant (the
   # fast path) or spawns a fresh Ruby running runtime/bootstrap.rb (the portable
@@ -922,8 +923,10 @@ module Sabaku
     # Every scored mutant gets its complete row of the kill graph, or none at all. A
     # survivor's row needs no child: every selected test already ran and passed. A
     # killed mutant's row is the first failure plus a sweep of the selected tests
-    # after it, which formal/lean/Sabaku/KillMatrix.lean proves is the whole killer
-    # set. Only `with_kills` writes here, so no status can change.
+    # after it. `killers_eq_first_cons_tail` in KillMatrix.lean says that is the whole
+    # killer set, given that a test's verdict does not depend on the tests before it;
+    # formal/README.md records that assumption as unchecked. Only `with_kills` writes
+    # here, so no status can change.
     def sweep_killers
       sweeps = []
       @entries.each do |entry|

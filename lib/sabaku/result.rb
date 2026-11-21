@@ -39,7 +39,7 @@ module Sabaku
 
     def skipped? = status == :skipped
 
-    # The only way a row reaches a result, so adding one can never move a status.
+    # Adding a row can never move a status.
     def with_kills(kills)
       self.class.new(mutant: mutant, status: status, duration: duration, failed_test: failed_test,
                      message: message, reason: reason, kills: kills)

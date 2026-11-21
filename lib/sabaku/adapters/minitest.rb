@@ -182,7 +182,8 @@ module Sabaku
         raise Sabaku::Error, "minitest adapter used before #preload!"
       end
 
-      # -> Failure, or nil when the test passed or skipped.
+      # -> Failure, or nil. A Failure carries an Exception only for an unexpected error; an
+      # assertion failure leaves the error nil.
       def run_one(id)
         pair = @id_to_pair[id]
         unless pair

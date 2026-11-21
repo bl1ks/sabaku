@@ -199,7 +199,7 @@ module Sabaku
       unused = kill_matrix.verdicts.select { |verdict| %i[zero idle].include?(verdict.kind) }
       out << matrix_list("zero kills", unused) do |verdict|
         if verdict.kind == :idle
-          "never selected (covers no mutated line)"
+          "never selected for a scored mutant"
         elsif verdict.tested.zero?
           "selected only for mutants without a complete row"
         else

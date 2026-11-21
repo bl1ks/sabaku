@@ -196,7 +196,8 @@ Result = Data.define(:mutant, :status, :duration, :failed_test, :message, :reaso
 # :skipped means --fail-fast stopped before this mutant was scheduled, or no
 # child could measure it (the mutation does not load, on either surface)
 # kills: Kills | nil. Only under --kill-matrix, only on killed and survived results, and
-# only when every selected test ran to a verdict. A killed row contains failed_test.
+# only when every selected test ran to a verdict. A killed row contains failed_test when
+# the child named one; a child that died before reporting leaves failed_test nil.
 Kills = Data.define(:tested, :killers)            # killers ⊆ tested, both sorted
 
 # lib/sabaku/kill_matrix.rb
