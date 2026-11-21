@@ -8,11 +8,15 @@ module Sabaku
   class Report
     ORDER = %i[killed survived timeout uncovered error skipped].freeze
 
-    attr_reader :results, :config
+    MATRIX_LIST_LIMIT = 20
 
-    def initialize(results, config)
+    attr_reader :results, :config, :kill_matrix
+
+    # kill_matrix: a KillMatrix when the campaign ran with --kill-matrix, else nil.
+    def initialize(results, config, kill_matrix: nil)
       @results = results
       @config = config
+      @kill_matrix = kill_matrix
     end
 
     def counts
@@ -63,6 +67,7 @@ module Sabaku
       out << error_lines
       out << unmeasured_lines
       out << file_lines
+      out << kill_matrix_lines
       out
     end
 
@@ -177,6 +182,61 @@ module Sabaku
       out
     end
 
+    def kill_matrix_lines
+      return "" unless kill_matrix
+
+      summary = kill_matrix.summary
+      scored = kill_matrix.rows.size + kill_matrix.incomplete.size
+      out = +"#{file_lines.empty? ? "" : "\n"}kill matrix: #{kill_matrix.rows.size} of #{scored} " \
+             "killed+survived mutants have a complete row\n"
+      unless kill_matrix.incomplete.empty?
+        out << format("  %d incomplete (a sweep did not finish or a killer failed with no " \
+                      "mutation); tests marked ? touch one\n", kill_matrix.incomplete.size)
+      end
+      out << format("  tests %d: kept %d, subsumed %d, duplicate %d, zero kills %d, idle %d\n\n",
+                    kill_matrix.verdicts.size, summary[:kept], summary[:subsumed],
+                    summary[:duplicate], summary[:zero], summary[:idle])
+      unused = kill_matrix.verdicts.select { |verdict| %i[zero idle].include?(verdict.kind) }
+      out << matrix_list("zero kills", unused) do |verdict|
+        if verdict.kind == :idle
+          "never selected (covers no mutated line)"
+        elsif verdict.tested.zero?
+          "selected only for mutants without a complete row"
+        else
+          "ran against #{plural(verdict.tested, "mutant")}, killed none"
+        end
+      end
+      out << matrix_list("redundant", kill_matrix.verdicts.select(&:redundant?)) do |verdict|
+        if verdict.kind == :duplicate
+          "same #{plural(verdict.kills, "kill")} as #{verdict.by}"
+        else
+          "#{plural(verdict.kills, "kill")}, all also killed by #{verdict.by}"
+        end
+      end
+      out << matrix_list("top unique killers", kill_matrix.ranking) do |verdict|
+        format("unique %d  kills %d", verdict.unique, verdict.kills)
+      end
+      out
+    end
+
+    def matrix_list(title, verdicts)
+      return "" if verdicts.empty?
+
+      shown = verdicts.first(MATRIX_LIST_LIMIT)
+      widest = shown.map { |verdict| verdict.test.length }.max
+      out = +"#{title}:\n"
+      shown.each do |verdict|
+        mark = verdict.provisional ? "?" : " "
+        out << format("  %-#{widest}s %s %s\n", verdict.test, mark, yield(verdict))
+      end
+      if verdicts.size > MATRIX_LIST_LIMIT
+        out << format("  ... and %d more\n", verdicts.size - MATRIX_LIST_LIMIT)
+      end
+      out << "\n"
+    end
+
+    def plural(count, noun) = "#{count} #{noun}#{count == 1 ? "" : "s"}"
+
     # A statement-block mutant carries a whole class body in its original text, so the
     # terminal gets the first line and the size, never a wall of source.
     def one_line(mutant, limit: 72)
@@ -187,7 +247,7 @@ module Sabaku
     end
 
     def to_h
-      {
+      hash = {
         version: VERSION,
         isolation: config.isolation,
         operators: config.operators,
@@ -211,6 +271,8 @@ module Sabaku
             description: mutant.description, test_ids: mutant.respond_to?(:test_ids) ? mutant.test_ids : nil }
         end
       }
+      hash[:kill_matrix] = kill_matrix.to_h if kill_matrix
+      hash
     end
 
     def to_json(*args)

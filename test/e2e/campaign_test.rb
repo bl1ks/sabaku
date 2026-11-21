@@ -175,4 +175,38 @@ class CampaignTest < Minitest::Test
     assert_operator payload["survived"], :>, 0
     assert_equal 0, payload["error"]
   end
+
+  # matrix_minitest has one test per verdict. Under `a + b -> a * b`, test_add_wait hangs after
+  # the first failure, so that mutant stays killed with no row and the add tests are provisional.
+  def test_kill_matrix_reports_each_verdict_and_keeps_the_score
+    root = File.expand_path("../adapters/fixtures/matrix_minitest", __dir__)
+    args = ["run", "lib", "--report=json", "--operators=aor,str", "--per-line=all", "--timeout=2"]
+    env = { "SABAKU_NO_CACHE" => "1", "SABAKU_TEST_GLOB" => "test/*_case.rb" }
+    off_out, off_err, off_code = run_cli_at(root, *args, env: env)
+    on_out, on_err, on_code = run_cli_at(root, *args, "--kill-matrix", env: env)
+    off = JSON.parse(off_out.lines.last)
+    on = JSON.parse(on_out.lines.last)
+
+    assert_equal [0, 0], [off_code, on_code], "#{off_err}\n#{on_err}"
+    assert_equal off["score"], on["score"]
+    assert_equal off["results"].map { |r| r.except("kills", "duration") },
+                 on["results"].map { |r| r.except("kills", "duration") }
+    refute off.key?("kill_matrix")
+
+    tests = on["kill_matrix"]["tests"].to_h { |t| [t["id"].delete_prefix("MatrixTest#"), t] }
+    verdicts = tests.transform_values { |t| [t["verdict"], t["by"]&.delete_prefix("MatrixTest#")] }
+    assert_equal({ "test_add_strong" => ["kept", nil],
+                   "test_add_twin" => ["duplicate", "test_add_strong"],
+                   "test_add_wait" => ["zero", nil],
+                   "test_add_weak" => ["subsumed", "test_add_strong"],
+                   "test_label_smoke" => ["zero", nil],
+                   "test_sub_only" => ["kept", nil],
+                   "test_untouched" => ["idle", nil] }, verdicts)
+    assert tests["test_add_wait"]["provisional"]
+    refute tests["test_sub_only"]["provisional"]
+    incomplete = on["kill_matrix"]["incomplete"]
+    assert_equal 1, incomplete.size
+    hung = on["results"].find { |r| r["mutant"]["id"] == incomplete.first["mutant"] }
+    assert_equal ["killed", "a * b"], [hung["status"], hung["mutant"]["replacement"]]
+  end
 end

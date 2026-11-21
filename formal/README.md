@@ -2,20 +2,21 @@
 
 What this directory proves about the mutation engine, what it checks, and what it leaves out.
 
-Run everything with `bin/formal`. That takes about four minutes. `bin/formal --deep` raises the
-Quint bound from six steps to ten; "What Quint checks" says what that bound now covers. Tool
-versions: Lean 4.36.0, Quint 0.33.1, Apalache 0.62.4.
+Run everything with `bin/formal`. That takes about twenty minutes on a WSL2 laptop.
+`bin/formal --deep` raises the runner bound from six steps to ten and the matrix bound from six
+to eight; "What Quint checks" says what those bounds cover. Tool versions: Lean 4.36.0, Quint 0.33.1, Apalache 0.62.4.
 
 ## Three checks, three questions
 
 | Question | Tool | Answer |
 | --- | --- | --- |
-| Does the algebra hold for every input? | Lean 4 | Proof. 88 theorems, no axioms, no `sorry`. |
-| Can the pool lose, double count, or mis-order a result on some schedule? | Quint + Apalache | No violation for every interleaving up to a step bound. |
-| Does the running code agree with the model? | Replay | Lean and Ruby independently compute 88 splices and 36 scores; 0 mismatches. |
+| Does the algebra hold for every input? | Lean 4 | Proof. 134 theorems, no axioms, no `sorry`. |
+| Can the pool or the kill-matrix sweep lose, double count, mis-order or rewrite a result on some schedule? | Quint + Apalache | No violation for every interleaving up to a step bound. |
+| Does the running code agree with the model? | Replay | Lean and Ruby independently compute 88 splices, 36 scores and 200 kill-matrix verdict sets; 0 mismatches. |
 
-Lean owns the pure part: offsets, operators, aridity, selection, score, cache. Quint owns the
-concurrent part: the pool in `lib/sabaku/runner.rb`. The replay is the bridge: it feeds real
+Lean owns the pure part: offsets, operators, aridity, selection, score, cache, and the kill
+matrix's redundancy verdicts. Quint owns the concurrent part: the pool in `lib/sabaku/runner.rb`
+and the `--kill-matrix` sweep pass after it. The replay is the bridge: it feeds real
 mutants from the analyzer to a second implementation in Lean.
 
 ## Layout
@@ -27,9 +28,11 @@ formal/lean/Sabaku/Aridity.lean    the recursive aridity rule and the walk
 formal/lean/Sabaku/Selection.lean  per-line selection and its stability
 formal/lean/Sabaku/Score.lean      the mutation score
 formal/lean/Sabaku/Cache.lean      cache read/write
+formal/lean/Sabaku/KillMatrix.lean dominance, kept tests, verdicts, the tail sweep
 formal/lean/Sabaku/Replay.lean     the second implementation used by the replay
 formal/quint/runner.qnt              the pool model and its invariants
-formal/quint/variants.sh             generates one fault variant per invariant
+formal/quint/matrix.qnt              the --kill-matrix sweep pass and its invariants
+formal/quint/variants.sh             generates one fault variant per fault switch
 formal/replay/emit.rb                deterministic facts from the real analyzer
 formal/replay/check.rb               contract checks on the real mutant list
 formal/replay/corpus/kitchen_sink.rb a source that reaches every operator
@@ -64,6 +67,13 @@ Each row names the property in plain words and the code it mirrors.
 | Cache | Everything the runner writes is read back unchanged. | `persist_results`, `Cache#fetch` |
 | Cache | The reader accepts two statuses the writer never produces. | `KNOWN_STATUSES` vs `persist_results` |
 | Cache | A file whose version is not the current one is ignored; a current file loads. | `Cache#load_entries` |
+| KillMatrix | Dominance is irreflexive, asymmetric and transitive; equal kill sets are broken by id. | `KillMatrix#dominates?` |
+| KillMatrix | Every dominated test has a kept dominator, and `by` is the strongest one: kept, and no kept dominator kills more. | `Verdict#by` |
+| KillMatrix | Dropping the redundant tests still kills every killed mutant. | `KillMatrix#verdicts` |
+| KillMatrix | A scored test is subsumed or duplicate exactly when a dominator exists, and duplicate means equal kill sets. | `KillMatrix#verdicts` |
+| KillMatrix | A test that is the only killer of some mutant is kept. | `Verdict#unique` |
+| KillMatrix | A mutant the test does not kill cannot change whether it is redundant or unique. | `KillMatrix.from` |
+| KillMatrix | A killed row is the first failure followed by every failing test after it. | `sweep_tail`, `write_row` |
 
 ## What Quint checks
 
@@ -111,8 +121,33 @@ ten-step run does not finish inside the gate's budget, so the retried result is 
 steps only through the transition and the invariant that guards it. Apalache decides every
 interleaving inside the bound, not a sample.
 
-Each invariant is shown able to fail: `formal/quint/variants.sh` flips one fault switch in the
-model, and the gate requires the variant to violate an invariant. The variants are generated, not
+`formal/quint/matrix.qnt` models the `--kill-matrix` pass. The pool is collapsed into one
+nondeterministic classification per mutant, which can leave a kill with or without a named test,
+a survivor, a timeout, an error, or a cache hit with or without a stored row. Each mutant then
+gets a row from the cache, an empty row as a survivor, or a sweep of its tail on a bounded pool
+followed by the reload control and the write. Two mutants, three tests and one worker.
+
+Checked invariants:
+
+- `INV_sweep_keeps_status`: the pass never writes a status, so the score cannot move.
+- `INV_complete_row_is_truth`: a written row is exactly the set of tests that fail.
+- `INV_killed_row_has_first`: a killed row contains the test that first failed.
+- `INV_survivor_row_empty`: a survivor's row is empty.
+- `INV_row_only_for_scored`: timeouts and errors never get a row.
+- `INV_failed_sweep_incomplete`: a sweep that fails leaves no row.
+- `INV_unverified_incomplete`: a killer whose reload control fails leaves no row.
+- `INV_cache_hit_no_first_child`: a cache hit never starts a first child.
+- `INV_row_from_cache_no_sweep`: a cache hit with a stored row is not swept again.
+- `INV_one_row_write`: a row is written at most once.
+- `INV_sweep_capacity`: at most `W` sweeps are in flight.
+- `INV_report_after_sweeps`: the report waits for every sweep.
+
+The honest matrix model is decided to six steps in the default gate and to eight, a complete
+two-mutant pass, under `--deep`.
+
+Each invariant is shown able to fail: `formal/quint/variants.sh` flips one fault switch in a
+model, and the gate requires the variant to violate an invariant. Matrix variants go to
+`formal/quint/broken-matrix/`. The variants are generated, not
 copied, so the honest model stays the only source of truth.
 
 ## What the replay checks
@@ -136,6 +171,11 @@ contract:
 - `selector.rb` and `call.rb` are text-rebuild operators: their image is not a token substitution,
   so Lean models the no-op filter (`emitted`) and not the tables themselves. The tables are checked
   by `test/core/operators/meta_test.rb` and by the corpus parse test, not by a proof.
+- The tail sweep assumes a test's verdict does not depend on the tests before it. A killer
+  that fails only after an earlier test has run is missed or misattributed. The matrix model's
+  `truth` is order-free by construction, so this assumption is not checked.
+- `Cache.lean` does not model the stored `killers` row. Unit tests cover that a row is read back
+  only for a killed entry whose first failure it contains.
 - `CoverageMap#ordered_tests_for_span` only orders the covering tests; the selection cardinality
   properties in `Selection.lean` do not depend on that order.
 
@@ -179,8 +219,8 @@ the covered code changes.
 ## Reproducing
 
 ```
-bin/formal          # about 4 minutes, six steps
-bin/formal --deep   # ten steps; does not finish in the gate's budget
+bin/formal          # about 20 minutes, six steps
+bin/formal --deep   # runner at ten steps, which does not finish in the gate's budget; matrix at eight
 ```
 
 The gate fails if a proof is unfinished, a replay record disagrees, the honest model violates an

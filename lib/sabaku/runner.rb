@@ -11,6 +11,7 @@ require_relative "cache"
 require_relative "coverage_map"
 require_relative "errors"
 require_relative "fingerprint"
+require_relative "kills"
 require_relative "load_hazard"
 require_relative "result"
 require_relative "test_selection"
@@ -34,6 +35,12 @@ module Sabaku
   #   kill check one test that failed, with the target file loaded a second time
   #              and no mutation, for files that run code at load time
   #
+  # Under --kill-matrix one more pass follows the pool. Each killed mutant gets a
+  # second child that runs the selected tests the first child never reached, so
+  # the first failure plus that tail is every test that kills it. The pass only
+  # ever adds a row to a result, never changes its status, so the score is the
+  # same with the flag on or off.
+  #
   # The parent preloads the adapter once, then forks one child per mutant (the
   # fast path) or spawns a fresh Ruby running runtime/bootstrap.rb (the portable
   # path). A pipe write from the child is the completion signal; a deadline is
@@ -50,13 +57,20 @@ module Sabaku
     end
 
     Job = Struct.new(:pid, :reader, :started_at, :deadline, :entry, :temp_path, :pgroup,
-                     :control, keyword_init: true)
+                     :control, :sweep, keyword_init: true)
 
     # A run of the same child shape with no mutation applied. `reload` re-executes
     # the target file first, which is what the fork path does to a mutant, so a
     # verdict here answers "did the harness itself break this test".
     Control = Struct.new(:key, :index, :ids, :reload, :path, :text, :first_load, :grace,
                          keyword_init: true)
+
+    # A second child for a killed mutant: the mutation applied again, and the selected
+    # tests the first child never reached run to completion. `failed_ids` stays nil
+    # unless the child finished cleanly.
+    Sweep = Struct.new(:index, :entry, :ids, :failed_ids, keyword_init: true) do
+      def first_load = entry.first_load
+    end
 
     def initialize(config, analyzer: nil, adapter:, coverage_map: nil, weak: nil)
       @config = config
@@ -71,6 +85,10 @@ module Sabaku
       @coverage_enabled = config.respond_to?(:coverage) ? config.coverage : true
       @fail_fast = config.respond_to?(:fail_fast) ? config.fail_fast : false
       @baseline = config.respond_to?(:baseline) ? config.baseline : true
+      @kill_matrix = config.respond_to?(:kill_matrix) ? config.kill_matrix : false
+      if @kill_matrix && !adapter.respond_to?(:sweep)
+        raise Sabaku::Error, "--kill-matrix needs an adapter that can sweep (#{adapter.class})"
+      end
       @halted = false
       @cache = Cache.new(Cache.default_path(config), enabled: !Cache.disabled?)
       @source_cache = {}
@@ -90,10 +108,19 @@ module Sabaku
       halt_after_prepared_survivor
       pending = @entries.reject(&:done?)
       execute(pending) unless pending.empty?
+      # Outside `execute`: a campaign that is all cache hits still owes its killed
+      # mutants a sweep.
+      sweep_killers if @kill_matrix
       persist_results
       @entries.map(&:result)
     ensure
       cleanup_temp_dir
+    end
+
+    # mutant id -> the test ids selected for it. The kill matrix needs it for a mutant
+    # that has no row, whose result cannot say what it was tested with.
+    def selections
+      Array(@entries).to_h { |entry| [entry.mutant.id, entry.selected_ids] }
     end
 
     private
@@ -154,7 +181,8 @@ module Sabaku
             duration: 0.0,
             failed_test: hit[:failed_test],
             message: hit[:message],
-            reason: hit[:reason]
+            reason: hit[:reason],
+            kills: cached_kills(hit, selected)
           )
         )
       end
@@ -192,6 +220,15 @@ module Sabaku
           message: "#{e.class}: #{e.message}"
         )
       )
+    end
+
+    # A cached row is only reused when it still fits the selection; otherwise the sweep
+    # pass rebuilds it.
+    def cached_kills(hit, selected)
+      killers = hit[:killers]
+      return nil unless @kill_matrix && killers && (killers - selected).empty?
+
+      Kills.new(tested: selected, killers: killers)
     end
 
     def selected_test_ids(mutant, source)
@@ -249,13 +286,9 @@ module Sabaku
     # ---- execution ----------------------------------------------------------
 
     def execute(entries)
-      Boot.env(@config)
-      Boot.require_paths(@config)
+      boot_parent
       case @isolation
       when :fork
-        @adapter.preload!
-        Boot.fire(@config, :after_boot)
-        Boot.fire(@config, :before_fork)
         verify_baseline!
         run_pool(entries) { |entry| start_fork_job(entry) }
         attribute_unmeasured
@@ -269,6 +302,20 @@ module Sabaku
         raise Sabaku::Error,
               "unknown isolation #{@isolation.inspect} (expected :fork or :process)"
       end
+    end
+
+    # Once per campaign, whichever pass needs a child first.
+    def boot_parent
+      return if @booted
+
+      @booted = true
+      Boot.env(@config)
+      Boot.require_paths(@config)
+      return unless @isolation == :fork
+
+      @adapter.preload!
+      Boot.fire(@config, :after_boot)
+      Boot.fire(@config, :before_fork)
     end
 
     # At most @jobs children in flight. IO.select wakes us on a completion
@@ -318,7 +365,7 @@ module Sabaku
         rescue IOError
           nil
         end
-        next if job.control
+        next if job.control || job.sweep
 
         job.entry.result ||= error_result(job.entry, "runner aborted before the child finished")
       end
@@ -406,6 +453,48 @@ module Sabaku
       run_tests(entry.selected_ids, writer)
     end
 
+    def start_sweep_job(sweep)
+      entry = sweep.entry
+      if sweep.first_load || @isolation == :process
+        grace = sweep.first_load ? @first_load_grace.to_f : 0.0
+        return spawn_process(sweep, text: entry.mutant.splice(source_text(entry)), ids: sweep.ids,
+                                    path: entry.mutant.path.to_s, neutral: false, grace: grace,
+                                    sweep: true)
+      end
+
+      reader, writer = IO.pipe
+      started = clock
+      pid = fork do
+        reader.close
+        fork_sweep_child(sweep, writer)
+      end
+
+      writer.close
+      Job.new(pid: pid, reader: reader, started_at: started,
+              deadline: started + @timeout, sweep: sweep, pgroup: false)
+    rescue StandardError
+      close_quietly(writer)
+      close_quietly(reader)
+      nil
+    end
+
+    def fork_sweep_child(sweep, writer)
+      entry = sweep.entry
+      begin
+        Boot.fire(@config, :child_start, entry.index)
+        absolute = File.expand_path(entry.mutant.path.to_s)
+        quietly { TOPLEVEL_BINDING.eval(entry.mutant.splice(source_text(entry)), absolute, 1) }
+        Boot.fire(@config, :before_test_run)
+        swept = @adapter.sweep(sweep.ids)
+      rescue Exception => e # rubocop:disable Lint/RescueException
+        write_payload(writer, "test_error" => true, "error" => describe_exception(e))
+        exit!(2)
+      end
+
+      write_payload(writer, "swept" => true, "failed_ids" => swept.failed_ids)
+      exit!(0)
+    end
+
     def control_child(control, writer)
       begin
         Boot.fire(@config, :child_start, control.index)
@@ -468,7 +557,7 @@ module Sabaku
       )
     end
 
-    def spawn_process(subject, text:, ids:, path:, neutral:, grace: 0.0)
+    def spawn_process(subject, text:, ids:, path:, neutral:, grace: 0.0, sweep: false)
       temporary = temp_file_for(subject)
       File.write(temporary, text.to_s)
 
@@ -483,7 +572,8 @@ module Sabaku
         "SABAKU_ENV" => JSON.generate(@config.env),
         "SABAKU_REQUIRES" => JSON.generate(@config.requires),
         "SABAKU_SETUP" => @config.setup_path.to_s,
-        "SABAKU_NEUTRAL" => neutral ? "1" : "0"
+        "SABAKU_NEUTRAL" => neutral ? "1" : "0",
+        "SABAKU_SWEEP" => sweep ? "1" : "0"
       }
       started = clock
 
@@ -498,15 +588,17 @@ module Sabaku
       writer.close
       Job.new(pid: pid, reader: reader, started_at: started,
               deadline: started + @timeout + grace,
-              entry: subject.respond_to?(:mutant) ? subject : nil,
-              control: subject.respond_to?(:key) ? subject : nil,
+              entry: subject.is_a?(Entry) ? subject : nil,
+              control: subject.is_a?(Control) ? subject : nil,
+              sweep: subject.is_a?(Sweep) ? subject : nil,
               temp_path: temporary, pgroup: true)
     rescue StandardError => e
       close_quietly(writer)
       close_quietly(reader)
-      if subject.respond_to?(:key)
+      case subject
+      when Control
         @controls[subject.key] = { ok: false, failed_id: nil, message: "#{e.class}: #{e.message}" }
-      else
+      when Entry
         subject.result ||= error_result(subject, "#{e.class}: #{e.message}")
       end
       nil
@@ -524,7 +616,9 @@ module Sabaku
       _pid, status = reap(job.pid)
       duration = clock - job.started_at
 
-      if job.control
+      if job.sweep
+        record_sweep(job.sweep, payload, status) unless timed_out
+      elsif job.control
         record_control(job.control, payload, status, timed_out, duration)
       elsif timed_out
         job.entry.result = Result.new(mutant: job.entry.mutant, status: :timeout, duration: duration,
@@ -533,7 +627,9 @@ module Sabaku
         job.entry.result = classify(job.entry, payload, status, duration)
       end
     rescue StandardError => e
-      if job.control
+      if job.sweep
+        job.sweep.failed_ids = nil
+      elsif job.control
         @controls[job.control.key] = { ok: false, failed_id: nil,
                                       message: "#{e.class}: #{e.message}" }
       else
@@ -817,8 +913,107 @@ module Sabaku
       end
     end
 
-    def kill_key(entry)
-      [entry.first_load ? :first_load : :fork, entry.mutant.path, entry.result.failed_test.to_s]
+    def kill_key(entry, test = entry.result.failed_test)
+      [entry.first_load ? :first_load : :fork, entry.mutant.path, test.to_s]
+    end
+
+    # ---- kill matrix --------------------------------------------------------
+
+    # Every scored mutant gets its complete row of the kill graph, or none at all. A
+    # survivor's row needs no child: every selected test already ran and passed. A
+    # killed mutant's row is the first failure plus a sweep of the selected tests
+    # after it, which formal/lean/Sabaku/KillMatrix.lean proves is the whole killer
+    # set. Only `with_kills` writes here, so no status can change.
+    def sweep_killers
+      sweeps = []
+      @entries.each do |entry|
+        result = entry.result
+        next if result.nil? || result.kills
+
+        if result.survived?
+          entry.result = result.with_kills(Kills.new(tested: entry.selected_ids, killers: []))
+        elsif result.killed?
+          tail = sweep_tail(entry)
+          next if tail.nil?
+
+          if tail.empty?
+            write_row(entry, [])
+          else
+            sweeps << Sweep.new(index: entry.index, entry: entry, ids: tail)
+          end
+        end
+      end
+      return if sweeps.empty?
+
+      boot_parent
+      # A sweep asks about a kill already counted, not a new mutant, so --fail-fast
+      # does not stop it.
+      without_halting do
+        run_pool(sweeps, controls: true) { |sweep| start_sweep_job(sweep) }
+      end
+      swept = sweeps.select(&:failed_ids)
+      verify_sweeps(swept)
+      swept.each { |sweep| write_row(sweep.entry, sweep.failed_ids) if sweep.failed_ids }
+    end
+
+    # The selected ids after the first failure, in selection order: the prefix already
+    # passed in the first child. A kill with no failed test (the child died before it
+    # could say) sweeps the whole selection. nil when the failed test is not one the
+    # mutant selected, which no row can be built from.
+    def sweep_tail(entry)
+      failed = entry.result.failed_test
+      return entry.selected_ids if failed.nil?
+
+      position = entry.selected_ids.index(failed)
+      position && entry.selected_ids.drop(position + 1)
+    end
+
+    def record_sweep(sweep, payload, status)
+      return unless payload && payload["swept"] && status&.exitstatus&.zero?
+
+      failed = payload["failed_ids"]
+      return unless failed.is_a?(Array) && failed.all?(String) && (failed - sweep.ids).empty?
+
+      sweep.failed_ids = failed
+    end
+
+    # The same question verify_kills asks of the first failure, asked of every other
+    # killer the sweep found: does the test fail with the file reloaded and no
+    # mutation? One that does is not evidence, and the row it is in is dropped. The
+    # status stays, because its own failed test was already verified.
+    def verify_sweeps(sweeps)
+      return unless @baseline
+
+      suspects = sweeps.select { |sweep| sweep.first_load || load_sensitive?(sweep.entry.mutant.path) }
+      checks = suspects.flat_map do |sweep|
+        sweep.failed_ids.map { |test| [sweep, test] }
+      end
+      return if checks.empty?
+
+      controls = checks.uniq { |sweep, test| kill_key(sweep.entry, test) }.map do |sweep, test|
+        entry = sweep.entry
+        Control.new(key: kill_key(entry, test), index: entry.index, ids: [test], reload: true,
+                    path: entry.mutant.path, text: source_text(entry), first_load: entry.first_load,
+                    grace: entry.first_load ? @first_load_grace.to_f : 0.0)
+      end
+      verdicts = run_controls(controls)
+
+      checks.each do |sweep, test|
+        verdict = verdicts[kill_key(sweep.entry, test)]
+        sweep.failed_ids = nil unless verdict && verdict[:ok]
+      end
+    end
+
+    def write_row(entry, swept)
+      killers = [entry.result.failed_test].compact | swept
+      return if killers.empty?
+
+      entry.result = entry.result.with_kills(Kills.new(tested: entry.selected_ids, killers: killers))
+    end
+
+    # A cache hit carries no source text; the sweep reapplies the mutation from the file.
+    def source_text(entry)
+      entry.source_text || source_for(entry.mutant.path).text
     end
 
     # Memoised per file: one AST walk says whether the fork path's extra load can
@@ -912,11 +1107,13 @@ module Sabaku
         next if entry.first_load
         next unless %i[killed survived].include?(entry.result.status)
 
+        kills = entry.result.kills
         @cache.store(entry.cache_key,
                      status: entry.result.status,
                      failed_test: entry.result.failed_test,
                      message: entry.result.message,
-                     reason: entry.result.reason)
+                     reason: entry.result.reason,
+                     killers: kills&.killed? ? kills.killers : nil)
       end
       @cache.save!
     end

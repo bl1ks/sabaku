@@ -15,6 +15,8 @@
 #   SABAKU_PAYLOAD_FD   fd number of the completion pipe (3)
 #   SABAKU_NEUTRAL      "1" boots the project with no mutation applied
 #                              (the baseline check in process isolation)
+#   SABAKU_SWEEP        "1" runs every id and reports each one that failed
+#                              (--kill-matrix), exiting 0 with `swept` and `failed_ids`
 #
 # The mutated source is applied at the target file's first load. The adapter
 # preloads the project in its normal order and a loader substitutes the mutated
@@ -61,6 +63,11 @@ module Sabaku
           apply_loader
           fire(:after_boot)
           fire(:before_test_run)
+          if sweep?
+            swept = @adapter.sweep(test_ids)
+            emit(payload, "swept" => true, "failed_ids" => swept.failed_ids)
+            exit!(0)
+          end
           outcome = @adapter.run(test_ids)
 
           emit(payload,
@@ -78,6 +85,11 @@ module Sabaku
       # the only way to learn that a red suite is red before anything is mutated.
       def neutral?
         ENV["SABAKU_NEUTRAL"] == "1"
+      end
+
+      # A sweep child answers which of the ids fail, not whether one does, so it runs them all.
+      def sweep?
+        ENV["SABAKU_SWEEP"] == "1"
       end
 
       # The loader intercepts the project's own `require`s, so its lib/test

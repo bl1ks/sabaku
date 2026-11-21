@@ -13,6 +13,7 @@ module Sabaku
     #   adapter.preload!    -> loads the framework + project tests once
     #   adapter.test_ids    -> Array[String], stable native ids
     #   adapter.run(ids)    -> Outcome(ok:, failed_id:, error:)
+    #   adapter.sweep(ids)  -> Sweep(failed_ids:)
     #
     # `preload!` followed by repeated `run(ids)` in forked children is the fast
     # path. `run` must never raise for an ordinary test failure and must never
@@ -46,6 +47,13 @@ module Sabaku
           !ok
         end
       end
+
+      Sweep = Data.define(:failed_ids) do
+        def killed? = !failed_ids.empty?
+      end
+
+      Failure = Data.define(:error)
+      private_constant :Failure
 
       MINITEST_GLOB = "test/**/*_test.rb"
 
@@ -108,36 +116,19 @@ module Sabaku
 
         Array(ids).each do |raw_id|
           id = raw_id.to_s
-          pair = @id_to_pair[id]
-          unless pair
-            return Outcome.new(
-              ok: false,
-              failed_id: id,
-              error: Sabaku::Error.new("unknown minitest test id #{id.inspect}")
-            )
-          end
-
-          klass, method_name = pair
-          # A project may override `run` (Active Support's isolation module does,
-          # to fork the test). Anything it returns that is not a Result must come
-          # back as this test's failure, not as an exception that takes the child
-          # down: the adapter contract is to never raise for a failing test.
-          begin
-            instance = klass.new(method_name)
-            result = instance.run
-            next if result.passed? || result.skipped? || instance.passed? || instance.skipped?
-
-            failure = result.failures.first || instance.failures.first
-            # An assertion failure is identified by failed_id; only an unexpected
-            # exception carries an Exception worth reporting separately.
-            error = failure.is_a?(::Minitest::UnexpectedError) ? failure.error : nil
-            return Outcome.new(ok: false, failed_id: id, error: error)
-          rescue Exception => e # rubocop:disable Lint/RescueException
-            return Outcome.new(ok: false, failed_id: id, error: e)
-          end
+          failure = run_one(id)
+          return Outcome.new(ok: false, failed_id: id, error: failure.error) if failure
         end
 
         Outcome.new(ok: true, failed_id: nil, error: nil)
+      end
+
+      # Every id runs, whatever the earlier ones did. `run` and `sweep` share `run_one`, so the
+      # two never disagree about which ids fail.
+      def sweep(ids)
+        ensure_preloaded!
+
+        Sweep.new(failed_ids: Array(ids).map(&:to_s).select { |id| run_one(id) })
       end
 
       def preloaded?
@@ -189,6 +180,32 @@ module Sabaku
         return if @preloaded
 
         raise Sabaku::Error, "minitest adapter used before #preload!"
+      end
+
+      # -> Failure, or nil when the test passed or skipped.
+      def run_one(id)
+        pair = @id_to_pair[id]
+        unless pair
+          return Failure.new(error: Sabaku::Error.new("unknown minitest test id #{id.inspect}"))
+        end
+
+        klass, method_name = pair
+        # A project may override `run` (Active Support's isolation module does,
+        # to fork the test). Anything it returns that is not a Result must come
+        # back as this test's failure, not as an exception that takes the child
+        # down: the adapter contract is to never raise for a failing test.
+        begin
+          instance = klass.new(method_name)
+          result = instance.run
+          return nil if result.passed? || result.skipped? || instance.passed? || instance.skipped?
+
+          failure = result.failures.first || instance.failures.first
+          # An assertion failure is identified by failed_id; only an unexpected
+          # exception carries an Exception worth reporting separately.
+          Failure.new(error: failure.is_a?(::Minitest::UnexpectedError) ? failure.error : nil)
+        rescue Exception => e # rubocop:disable Lint/RescueException
+          Failure.new(error: e)
+        end
       end
 
       # Load the project's test files while making `require "minitest/autorun"`

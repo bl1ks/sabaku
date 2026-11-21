@@ -57,6 +57,53 @@ class MinitestAdapterTest < Minitest::Test
     end
   end
 
+  def with_matrix_add(body)
+    in_project("matrix_minitest", glob: "test/*_case.rb") do
+      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter.preload!
+      original = MatrixCalc.method(:add)
+      MatrixCalc.define_singleton_method(:add, &body)
+      yield adapter
+    ensure
+      MatrixCalc.define_singleton_method(:add, original) if original
+    end
+  end
+
+  def test_sweep_reports_every_failing_id_in_order_and_run_still_stops_at_the_first
+    with_matrix_add(->(a, b) { a * b }) do |adapter|
+      ids = %w[MatrixTest#test_add_weak MatrixTest#test_sub_only MatrixTest#test_add_strong]
+
+      assert_equal %w[MatrixTest#test_add_weak MatrixTest#test_add_strong],
+                   adapter.sweep(ids).failed_ids
+      assert_equal "MatrixTest#test_add_weak", adapter.run(ids).failed_id
+      assert_empty adapter.sweep(["MatrixTest#test_sub_only"]).failed_ids
+    end
+  end
+
+  def test_sweep_counts_an_unknown_id_as_failed_like_run
+    with_matrix_add(->(a, b) { a + b }) do |adapter|
+      swept = adapter.sweep(%w[Nope#test_missing MatrixTest#test_add_strong])
+
+      assert_equal %w[Nope#test_missing], swept.failed_ids
+      assert_predicate swept, :killed?
+      refute adapter.run(%w[Nope#test_missing]).ok
+    end
+  end
+
+  def test_sweep_counts_a_run_override_that_returns_garbage_as_failed
+    in_project("odd_run_minitest", glob: "test/*_case.rb") do
+      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter.preload!
+      original = Odd.method(:value)
+      Odd.define_singleton_method(:value) { 0 }
+
+      assert_equal %w[OddRunTest#test_value], adapter.sweep(%w[OddRunTest#test_value]).failed_ids
+      refute adapter.run(%w[OddRunTest#test_value]).ok
+    ensure
+      Odd.define_singleton_method(:value, original) if original
+    end
+  end
+
   def test_custom_test_glob
     in_project("minitest_calc") do
       ENV["SABAKU_TEST_GLOB"] = "test/*_test.rb"

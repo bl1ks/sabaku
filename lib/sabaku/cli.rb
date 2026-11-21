@@ -81,10 +81,12 @@ module Sabaku
       else
         coverage_map, weak = coverage
       end
-      results = Runner.new(cfg, analyzer: analyzer, adapter: adapter,
-                                coverage_map: coverage_map, weak: weak).call(mutants)
+      runner = Runner.new(cfg, analyzer: analyzer, adapter: adapter,
+                               coverage_map: coverage_map, weak: weak)
+      results = runner.call(mutants)
 
-      report = Report.new(results, cfg)
+      matrix = kill_matrix(cfg, results, runner, coverage_map, adapter)
+      report = Report.new(results, cfg, kill_matrix: matrix)
       emit(report, cfg)
       errored = report.counts[:error]
       if errored.positive?
@@ -102,6 +104,15 @@ module Sabaku
       report.score_pct < threshold ? EXIT_BELOW_SCORE : EXIT_OK
     ensure
       finish_campaign(cfg) if cfg
+    end
+
+    # The coverage pass ran every test, so its ids name the tests no mutant selected. The
+    # matrix is advice, so it never changes the exit code.
+    def kill_matrix(cfg, results, runner, coverage_map, adapter)
+      return nil unless cfg.kill_matrix
+
+      universe = coverage_map.test_ids | (adapter.preloaded? ? adapter.test_ids : [])
+      KillMatrix.from(results, universe: universe, selected: runner.selections)
     end
 
     # after_campaign runs once, after the last child, before the process exits.
@@ -193,6 +204,9 @@ module Sabaku
         end
         o.on("--[no-]coverage", "select tests by line coverage") { |v| options[:coverage] = v }
         o.on("--[no-]weak", "skip the dry-run probes that decide uninfected survivors") { |v| options[:weak] = v }
+        o.on("--[no-]kill-matrix", "run every selected test against each killed mutant and report redundant tests") do |v|
+          options[:kill_matrix] = v
+        end
         o.on("--isolation=MODE", "fork or process") { |v| options[:isolation] = v.to_sym }
         o.on("--report=FORMAT", "terminal, json, quiet") { |v| options[:report] = v.to_sym }
         o.on("--output=PATH", "write the JSON report here") { |v| options[:output] = v }
@@ -227,7 +241,8 @@ module Sabaku
         overrides[:diff_ranges] = Diff.intersect(overrides[:diff_ranges], changed)
       end
       keys = %i[paths exclude operators jobs timeout per_line diff_ranges
-                coverage isolation report output env requires setup setup_path fail_fast baseline weak]
+                coverage isolation report output env requires setup setup_path fail_fast baseline weak
+                kill_matrix]
       Config.default(**overrides.slice(*keys))
     end
 
@@ -312,6 +327,8 @@ module Sabaku
           --fail-fast                stop at the first surviving mutant
           --[no-]baseline            refuse to score a suite that is already red (default on)
           --[no-]weak                dry-run probes that decide uninfected survivors
+          --kill-matrix              run every selected test against each killed mutant and
+                                     report redundant tests (the score does not change)
           --env=KEY=VALUE            ENV set before the suite loads (repeatable)
           --require=PATH             require after coverage starts, before the tests
           --setup=PATH               Ruby file with boot hooks for Rails and friends

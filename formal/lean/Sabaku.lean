@@ -4,3 +4,4 @@ import Sabaku.Aridity
 import Sabaku.Selection
 import Sabaku.Score
 import Sabaku.Cache
+import Sabaku.KillMatrix

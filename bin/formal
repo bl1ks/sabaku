@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# The formal verification gate: Lean proofs, the Lean/Ruby replay, and the Quint model.
+# The formal verification gate: Lean proofs, the Lean/Ruby replay, and the Quint models.
 #
-# The default run bounds the Quint check at six steps so the gate stays under about two minutes.
-# `--deep` raises the bound to ten steps, which is a complete three-mutant campaign and takes
-# about five minutes.
+# The default run bounds both honest Quint models at six steps; the gate takes about twenty
+# minutes on a laptop. `--deep` raises the runner bound to ten steps, a complete three-mutant
+# campaign, and the matrix bound to eight steps, a complete two-mutant sweep pass.
 set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
@@ -25,6 +25,12 @@ invariants=(INV_one_result INV_done_has_result INV_uncovered_has_no_child INV_ca
             INV_skip_without_child_after_survivor INV_rewrite_at_most_once
             INV_retry_measured_once INV_weak_has_no_child)
 
+invariants_matrix=(INV_sweep_keeps_status INV_complete_row_is_truth INV_killed_row_has_first
+                   INV_survivor_row_empty INV_row_only_for_scored INV_failed_sweep_incomplete
+                   INV_unverified_incomplete INV_cache_hit_no_first_child
+                   INV_row_from_cache_no_sweep INV_one_row_write INV_sweep_capacity
+                   INV_report_after_sweeps)
+
 echo "== lean: build and prove =="
 (cd formal/lean && lake build)
 if grep -rnE '\b(sorry|admit)\b' formal/lean/Sabaku >/dev/null; then
@@ -44,31 +50,48 @@ for spec in formal/quint/*.qnt; do
 done
 
 steps=6
+steps_matrix=6
 if [[ $deep -eq 1 ]]; then
   steps=10
+  steps_matrix=8
 fi
-echo "== quint: honest model at $steps steps =="
-if quint verify formal/quint/runner.qnt --max-steps="$steps" \
-    --invariants "${invariants[@]}" > formal/out/quint-honest.log 2>&1; then
-  echo "  no violation at $steps steps"
-else
-  echo "formal: the honest model violates an invariant" >&2
-  tail -20 formal/out/quint-honest.log >&2
-  exit 1
-fi
+
+honest() {
+  local model="$1" bound="$2" log="$3"
+  shift 3
+  echo "== quint: honest $model model at $bound steps =="
+  if quint verify "formal/quint/$model.qnt" --max-steps="$bound" --invariants "$@" \
+      > "formal/out/$log.log" 2>&1; then
+    echo "  no violation at $bound steps"
+  else
+    echo "formal: the honest $model model violates an invariant" >&2
+    tail -20 "formal/out/$log.log" >&2
+    exit 1
+  fi
+}
+
+broken() {
+  local dir="$1" prefix="$2"
+  shift 2
+  for spec in "formal/quint/$dir"/*.qnt; do
+    name=$(basename "$spec" .qnt)
+    if quint verify "$spec" --max-steps=8 --invariants "$@" \
+        > "formal/out/$prefix$name.log" 2>&1; then
+      echo "formal: $dir/$name did not violate its invariant" >&2
+      tail -20 "formal/out/$prefix$name.log" >&2
+      exit 1
+    fi
+    echo "  $dir/$name: violation found"
+  done
+}
+
+honest runner "$steps" quint-honest "${invariants[@]}"
+honest matrix "$steps_matrix" quint-matrix-honest "${invariants_matrix[@]}"
 
 echo "== quint: fault variants must violate =="
 ./formal/quint/variants.sh >/dev/null
-for spec in formal/quint/broken/*.qnt; do
-  name=$(basename "$spec" .qnt)
-  if quint verify "$spec" --max-steps=8 --invariants "${invariants[@]}" \
-      > "formal/out/quint-$name.log" 2>&1; then
-    echo "formal: $name did not violate its invariant" >&2
-    tail -20 "formal/out/quint-$name.log" >&2
-    exit 1
-  fi
-  echo "  $name: violation found"
-done
+broken broken quint- "${invariants[@]}"
+broken broken-matrix quint-matrix- "${invariants_matrix[@]}"
 
 echo "== findings stay fixed =="
 ./formal/regressions.sh

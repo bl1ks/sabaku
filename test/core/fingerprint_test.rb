@@ -31,6 +31,12 @@ class FingerprintTest < Minitest::Test
     assert_equal digest, digest
   end
 
+  # The flag only adds rows and cannot move a status, so splitting the cache on it would
+  # throw away verdicts that are still right.
+  def test_the_kill_matrix_flag_does_not_change_the_digest
+    assert_equal digest, digest(Sabaku::Config.default(kill_matrix: true))
+  end
+
   def test_changing_a_test_body_changes_the_digest
     before = digest
     File.write(@test, "class AT\n  def test_one\n    assert true\n  end\nend\n")

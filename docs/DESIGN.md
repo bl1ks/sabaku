@@ -179,7 +179,9 @@ MinitestAdapter.new     -> adapter
 adapter.preload!        -> void          # loads the project's tests into this process
 adapter.test_ids        -> Array[String] # stable ids, minitest native
 adapter.run(ids)        -> Outcome       # runs those ids only, in this process
+adapter.sweep(ids)      -> Sweep         # runs every id, whatever the earlier ones did
 Outcome = Data.define(:ok, :failed_id, :error)   # ok: Boolean, error: Exception | nil
+Sweep = Data.define(:failed_ids)                 # every id that failed, in the given order
 ```
 
 `preload!` then repeated `run(ids)` in forked children is the fast path. `MinitestAdapter#run` must never
@@ -188,11 +190,20 @@ raise for an ordinary test failure, and must never call `exit`.
 ```ruby
 # lib/sabaku/runner.rb
 Runner.new(config, analyzer:, adapter:, coverage_map:, weak:) #call -> Array[Result]
-Result = Data.define(:mutant, :status, :duration, :failed_test, :message, :reason)
+Result = Data.define(:mutant, :status, :duration, :failed_test, :message, :reason, :kills)
 # status: :killed | :survived | :timeout | :error | :uncovered | :skipped
 # reason: :not_detected | :not_infected | nil. A survivor without a reason was not classified.
 # :skipped means --fail-fast stopped before this mutant was scheduled, or no
 # child could measure it (the mutation does not load, on either surface)
+# kills: Kills | nil. Only under --kill-matrix, only on killed and survived results, and
+# only when every selected test ran to a verdict. A killed row contains failed_test.
+Kills = Data.define(:tested, :killers)            # killers ⊆ tested, both sorted
+
+# lib/sabaku/kill_matrix.rb
+KillMatrix.from(results, universe:, selected:)     # selected: {mutant id => test ids}
+KillMatrix#verdicts -> Array[Verdict]               # one per test, sorted by id
+Verdict = Data.define(:test, :kind, :kills, :unique, :tested, :by, :provisional)
+# kind: :kept | :subsumed | :duplicate | :zero | :idle
 ```
 
 Mutant lifecycle, the whole state machine:
@@ -213,6 +224,20 @@ candidate --(covering tests)--> queued --> running --(child exits 0)--> survived
                                                  '--(other child failure)--> error
 candidate --(--fail-fast saw a survivor first)--> skipped
 ```
+
+Under `--kill-matrix`, one pass follows the pool and the kill checks, and it never writes a
+status:
+
+```
+killed (failed_test t, selected s) --(nothing after t in s)--> row {t}
+killed --(sweep child runs s after t)--> clean payload --(swept killers pass the reload check)--> row {t} ∪ failed
+                                    '--> timeout / crash / bad payload / a killer fails unmutated --> no row
+survived --> row {} (every selected test already passed)
+```
+
+A kill whose child died before naming a test sweeps the whole selection. The pass runs even when
+every mutant was a cache hit, and `--fail-fast` does not stop it, because it asks about kills
+already counted.
 
 The probe pass decides some survivors before any child runs, so `--fail-fast` has two halting
 points, not one: a survivor the dry run proved stops the campaign before the first fork, and a
@@ -311,6 +336,11 @@ for every mutant. Slower, and the fallback surface for a file that fork isolatio
 
 A hit skips the child and reports the stored status and reason with duration 0. `:uncovered`
 results are not stored. `SABAKU_NO_CACHE` is the kill switch.
+
+A killed entry may also carry `killers`, its kill-matrix row. The key is optional, so the format
+version does not move. A malformed row is dropped and the status kept, and a store without
+`killers` keeps the row already stored for the same status and failed test. `--kill-matrix` is
+not in the fingerprint: it cannot change a status, so it must not split the cache.
 
 ## Aridity rules for Ruby (expert())
 
