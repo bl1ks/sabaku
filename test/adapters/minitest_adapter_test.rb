@@ -68,6 +68,21 @@ class MinitestAdapterTest < Minitest::Test
       ENV.delete("SABAKU_TEST_GLOB")
     end
   end
+
+  def test_preload_survives_classes_that_override_name_and_raise
+    shadow = Class.new do
+      def self.name(*)
+        raise ArgumentError, "missing keywords: :size, :region"
+      end
+    end
+
+    in_project("minitest_calc") do
+      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter.preload!
+      assert_equal 6, adapter.test_ids.size
+      assert_raises(ArgumentError) { shadow.name }
+    end
+  end
 end
 
 class MinitestAdapterTest < Minitest::Test
