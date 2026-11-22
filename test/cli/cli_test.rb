@@ -145,6 +145,34 @@ class CLITest < Minitest::Test
     end
   end
 
+  def test_tests_pack_loads_the_tests_of_every_pack_that_depends_on_the_target
+    Dir.mktmpdir("sabaku-packs") do |dir|
+      FileUtils.cp_r(File.join(FixtureHelper::ROOT, "fixture", "packs_app", "."), dir)
+      Dir.chdir(dir) do
+        code, out, err = with_env("SABAKU_NO_CACHE" => "1") do
+          start(["run", "packs/ledger/lib", "--tests=pack", "--per-line=all", "--report=json"])
+        end
+
+        assert_equal 0, code, err
+        assert_includes err, "packs/billing/test/**/*_test.rb"
+        refute_includes err, "packs/audit"
+        overdrawn = JSON.parse(out.lines.last)["results"].select { |result| result["mutant"]["line"] == 10 }
+        refute_empty overdrawn
+        assert(overdrawn.any? { |result| result["status"] == "killed" && result["failed_test"].start_with?("InvoiceTest#") },
+               overdrawn.map { |result| result.slice("status", "failed_test") }.inspect)
+      end
+    end
+  end
+
+  def test_tests_pack_needs_a_package_yml
+    in_project do
+      code, _out, err = start(["run", "lib", "--tests=pack"])
+
+      assert_equal 2, code
+      assert_includes err, "package.yml"
+    end
+  end
+
   def test_fail_fast_reports_the_rest_as_skipped
     in_project do
       File.write("lib/subject.rb", <<~RUBY)

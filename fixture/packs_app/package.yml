@@ -1,0 +1,7 @@
+# The root package. Packwerk's root depends on every pack, so its tests always load.
+enforce_dependencies: true
+
+dependencies:
+  - packs/ledger
+  - packs/billing
+  - packs/audit

@@ -109,11 +109,24 @@ tier has no test at all: the suite only exercises the ten-item tier.
 | `--min-score=PCT` | none | exit 1 when the reported score is below this |
 | `--exclude=GLOB` | none | skip files |
 | `--tests=GLOB` | `test/**/*_test.rb` | test files to load (repeatable) |
+| `--tests=pack` | off | load the tests of each target's Packwerk pack, of every pack that depends on it, and of the root package |
 | `--limit=N` | none | cap the mutant count |
 
 Run it from the project root. `lib` and `test` are put on `$LOAD_PATH`, and test files
 are discovered with `test/**/*_test.rb`. `--tests=GLOB` replaces the pattern, and
 `SABAKU_TEST_GLOB` sets one when the flag is absent. Set `SABAKU_NO_CACHE=1` to ignore the result cache.
+
+In a Packwerk project, a test that can kill a pack's mutants may live in another pack: one that
+lists the target's pack under `dependencies`, directly or through another pack. `--tests=pack`
+reads every `package.yml` (outside `vendor/`, `tmp/`, `bin/`, `script/` and `node_modules/`),
+prints the globs it chose to stderr, and loads only those. On `fixture/packs_app`, mutating
+`packs/ledger/lib --per-line=all` with the ledger's own tests leaves 20 of 28 mutants uncovered; `--tests=pack`
+adds `packs/billing`, whose tests call the ledger, and 26 are killed. `packs/audit` does not
+depend on the ledger, so its tests are not loaded.
+
+```sh
+sabaku run packs/ledger/lib --tests=pack
+```
 
 ### Kill matrix
 

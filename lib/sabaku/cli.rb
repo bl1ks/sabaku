@@ -11,6 +11,9 @@ module Sabaku
     EXIT_BELOW_SCORE = 1
     EXIT_ERROR = 2
 
+    # `--tests=pack`: the target's Packwerk pack and every pack that depends on it.
+    PACK_TESTS = "pack"
+
     def self.start(argv, out: $stdout, err: $stderr)
       new(argv, out: out, err: err).run
     end
@@ -224,7 +227,7 @@ module Sabaku
           options[:min_score] = v
         end
         o.on("--exclude=GLOB", "skip files") { |v| (options[:exclude] ||= []) << v }
-        o.on("--tests=GLOB", "test files to load (repeatable, default test/**/*_test.rb)") do |v|
+        o.on("--tests=GLOB|pack", "test files to load (repeatable, default test/**/*_test.rb)") do |v|
           (options[:tests] ||= []) << v
         end
         o.on("--limit=N", Integer, "cap the number of mutants") { |v| options[:limit] = v }
@@ -253,14 +256,27 @@ module Sabaku
         changed = Diff.git_ranges(revision)
         overrides[:diff_ranges] = Diff.intersect(overrides[:diff_ranges], changed)
       end
-      overrides[:test_globs] = overrides.delete(:tests) || [ENV.fetch("SABAKU_TEST_GLOB", "")].reject(&:empty?)
+      tests = overrides.delete(:tests) || [ENV.fetch("SABAKU_TEST_GLOB", "")].reject(&:empty?)
+      overrides[:test_globs] = tests - [PACK_TESTS]
       keys = %i[paths exclude operators jobs timeout per_line diff_ranges
                 coverage isolation report output env requires setup setup_path fail_fast baseline weak
                 kill_matrix kill_matrix_scope kill_matrix_focus sweep_timeout test_globs]
-      Config.default(**overrides.slice(*keys))
+      cfg = Config.default(**overrides.slice(*keys))
+      tests.include?(PACK_TESTS) ? with_pack_tests(cfg) : cfg
+    end
+
+    def with_pack_tests(cfg)
+      globs = Packs.load(Dir.pwd).test_globs_for(source_files(cfg))
+      @err.puts("mutation: --tests=pack loads #{globs.join(", ")}")
+      cfg.with(test_globs: cfg.test_globs | globs)
     end
 
     def load_sources(cfg)
+      source_files(cfg).map { |file| Source.new(file, File.read(file)) }
+    end
+
+    # Repo-relative, sorted.
+    def source_files(cfg)
       patterns = cfg.paths.empty? ? ["lib/**/*.rb"] : cfg.paths
       files = patterns.flat_map do |pattern|
         File.directory?(pattern) ? Dir.glob(File.join(pattern, "**/*.rb")) : Dir.glob(pattern)
@@ -268,7 +284,7 @@ module Sabaku
       files = files.uniq.reject { |f| File.directory?(f) }.reject { |f| excluded?(f, cfg.exclude) }
       raise Sabaku::Error, "no Ruby files matched #{patterns.inspect}" if files.empty?
 
-      files.sort.map { |file| Source.new(relative(file), File.read(file)) }
+      files.map { |file| relative(file) }.sort
     end
 
     def excluded?(file, globs)
@@ -353,6 +369,8 @@ module Sabaku
           --require=PATH             require after coverage starts, before the tests
           --setup=PATH               Ruby file with boot hooks for Rails and friends
           --tests=GLOB               test files to load (repeatable; SABAKU_TEST_GLOB sets one)
+          --tests=pack               the tests of the target's Packwerk pack and of every pack
+                                     that depends on it
           --isolation=fork|process   fork from a preloaded suite, or a fresh process
           --report=terminal|json     output format
           --output=PATH              write the JSON report
