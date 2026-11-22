@@ -57,6 +57,12 @@ module Sabaku
       def install
         self.class.current = self
         Kernel.prepend(KernelHook) unless Kernel.ancestors.include?(KernelHook)
+        # `Kernel.require` is the module function's own copy, which Zeitwerk and
+        # Bootsnap call, and a prepend to Kernel does not reach it. The singleton's
+        # ancestors reach Kernel through Object, so only its own prepends count.
+        singleton = Kernel.singleton_class
+        own = singleton.ancestors.take_while { |mod| mod != Module }
+        singleton.prepend(KernelHook) unless own.include?(KernelHook)
         Module.prepend(AutoloadHook) unless Module.ancestors.include?(AutoloadHook)
         self
       end

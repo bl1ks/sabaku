@@ -49,7 +49,8 @@ The CLI applies the hooks at fixed points:
 
 In process isolation `child_start` fires before the application boots, so `ActiveRecord` is not
 defined yet; application-level database work belongs in `before_test_run`, which fires after boot
-in both modes.
+in both modes. A first-load child boots like the parent: `--require` paths and `require_path`, the
+test files, then `after_boot`, all before the mutated file is substituted.
 
 A hook that raises stops the campaign with exit 2, except `after_campaign`: it runs after the
 verdict, so its failure is printed to stderr and the campaign keeps its exit status. A red suite

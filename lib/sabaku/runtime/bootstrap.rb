@@ -23,7 +23,7 @@
 # preloads the project in its normal order and a loader substitutes the mutated
 # source when the project requires the target, so a file that uses the project
 # at load time sees the project already loaded. A file the project never loads
-# is applied after the preload. Then the child runs exactly the requested ids.
+# is applied after the preload and after_boot. Then the child runs exactly the requested ids.
 #
 # A neutral child skips the loader and boots the project untouched.
 #
@@ -63,8 +63,8 @@ module Sabaku
           fire(:child_start, index)
           apply_requires
           @adapter.preload!
-          apply_loader
           fire(:after_boot)
+          apply_loader
           fire(:before_test_run)
           if sweep?
             swept = @adapter.sweep(test_ids)
@@ -155,11 +155,11 @@ module Sabaku
         raise Sabaku::Error, "SABAKU_ENV is not valid JSON"
       end
 
+      # The same list, in the same order, as Boot.require_paths in the fork parent.
       def apply_requires
-        JSON.parse(ENV.fetch("SABAKU_REQUIRES", "[]")).each do |path|
-          expanded = File.expand_path(path)
-          require(File.exist?(expanded) ? expanded : path)
-        end
+        paths = JSON.parse(ENV.fetch("SABAKU_REQUIRES", "[]")) + @setup&.require_paths.to_a
+        require "sabaku/boot"
+        paths.each { |path| Sabaku::Boot.require_one(path) }
       rescue JSON::ParserError
         raise Sabaku::Error, "SABAKU_REQUIRES is not valid JSON"
       end

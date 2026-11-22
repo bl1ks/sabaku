@@ -321,7 +321,9 @@ raises, the file is the reason the fork child failed, so the mutant moves to the
 surface. If the unmutated file loads, the mutation is unloadable and the mutant is `:skipped` with
 that error.
 
-The first-load surface is `runtime/bootstrap.rb` in a fresh process. The project's suite loads in
+The first-load surface is `runtime/bootstrap.rb` in a fresh process. It boots like the parent
+(`Boot.require_paths`, `preload!`, `after_boot`) before installing the loader; the loader hooks
+both `require` and `Kernel.require`, which Zeitwerk and Bootsnap call. The project's suite loads in
 its normal order, and `runtime/first_load.rb` substitutes the mutated source at the moment the
 project loads the target: a `require` is answered with an `eval` of the spliced text, and an
 `autoload` registered for the target is redirected to a generated shim that does the same. The

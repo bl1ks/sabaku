@@ -49,6 +49,15 @@ class FirstLoadTest < Minitest::Test
     assert_includes $LOADED_FEATURES, @path
   end
 
+  # Zeitwerk and Bootsnap call the module function, which a prepend to Kernel misses.
+  def test_kernel_dot_require_loads_the_mutated_source
+    instance = loader
+
+    assert Kernel.require("first_load_probe")
+    assert instance.applied?
+    assert_equal 2, FirstLoadProbe.value
+  end
+
   def test_an_autoload_is_redirected_to_the_shim
     instance = loader
     holder = Module.new

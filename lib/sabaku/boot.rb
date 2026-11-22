@@ -6,7 +6,8 @@ module Sabaku
   # instead of scattered `respond_to?` checks in the runner:
   #
   #   env            before anything loads (RAILS_ENV)
-  #   require_paths  after Coverage.start, before the adapter preloads tests
+  #   require_paths  --require, then the setup's require_path, after Coverage.start and
+  #                  before the adapter preloads tests
   #   after_boot     after the test framework and application are loaded
   #   before_fork    in the parent, once, before any child exists
   #   child_start    in each child, before the mutated file is evaluated
@@ -23,10 +24,9 @@ module Sabaku
     end
 
     def require_paths(config)
-      setup = setup_for(config)
-      return config unless setup
-
-      setup.require_paths.each { |path| require_one(path) }
+      paths = config.respond_to?(:requires) ? config.requires : []
+      paths += setup_for(config)&.require_paths.to_a
+      paths.each { |path| require_one(path) }
       config
     end
 

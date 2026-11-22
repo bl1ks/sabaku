@@ -59,6 +59,22 @@ class SetupTest < Minitest::Test
     ENV.delete("SABAKU_BOOT_TEST") if previous.nil?
   end
 
+  # `--require` and the setup's require_path are one list, required in that order on
+  # every surface that boots the project.
+  def test_boot_requires_the_cli_requires_before_the_setup_paths
+    Dir.mktmpdir("sabaku-requires") do |dir|
+      cli = File.join(dir, "cli_required.rb")
+      File.write(cli, "$sabaku_boot_order = [:cli]\n")
+      path = File.join(dir, "setup_required.rb")
+      File.write(path, "$sabaku_boot_order << :setup\n")
+      setup = Sabaku.setup { require_path path }
+
+      Sabaku::Boot.require_paths(Sabaku::Config.default(requires: [cli], setup: setup))
+
+      assert_equal %i[cli setup], $sabaku_boot_order
+    end
+  end
+
   def test_a_setup_without_hooks_is_empty
     assert Sabaku::Setup.new.empty?
   end
