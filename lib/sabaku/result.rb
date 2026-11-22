@@ -20,13 +20,14 @@ module Sabaku
     #             mutation_unloadable: the unmutated file reloads, the mutated one does not;
     #             suite_unloadable: the first-load surface could not boot with it
     #   timeout   deadline: the parent killed the child at its deadline
-    #   error     unverified_kill: the killing test fails with no mutation applied;
+    #   error     environment_crash: the child died of a signal before its deadline;
+    #             unverified_kill: the killing test fails with no mutation applied;
     #             harness: the child or the runner failed outside the tests
     REASONS = {
       killed: [],
       survived: %i[not_detected not_infected],
       timeout: %i[deadline],
-      error: %i[unverified_kill harness],
+      error: %i[environment_crash unverified_kill harness],
       uncovered: [],
       skipped: %i[fail_fast mutation_unloadable suite_unloadable]
     }.transform_values(&:freeze).freeze

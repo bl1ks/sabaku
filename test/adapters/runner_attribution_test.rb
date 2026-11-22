@@ -96,6 +96,21 @@ class RunnerAttributionTest < Minitest::Test
     assert_match(/stopped the child/, result.message)
   end
 
+  # Only the parent's deadline makes a timeout. A child that dies of a signal on its own
+  # was not measured, so it must not enter the score's denominator.
+  def test_a_child_killed_by_a_signal_before_its_deadline_is_an_environment_crash
+    result = run_campaign(
+      "signal_child_minitest", test_id: "CrashyTest#test_value",
+      path: "lib/crashy.rb", line: 5,
+      original: "1", replacement: "0", operator: :lcr, node_kind: "IntegerNode",
+      map_lines: (1..7).to_a
+    ).first
+
+    assert_equal :error, result.status, result.message
+    assert_equal :environment_crash, result.reason
+    assert_match(/signal 9/, result.message)
+  end
+
   # A project may override `run`; Active Support's isolation helper does. A
   # return value that is not a Result is that test's failure, not a child crash.
   def test_a_test_class_that_overrides_run_does_not_take_the_child_down

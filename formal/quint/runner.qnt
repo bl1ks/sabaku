@@ -4,7 +4,8 @@
 /// the mutant queues. At most `W` children run. A running child ends in exactly one of four
 /// ways: it reports a result (killed or survived), it exits 1 without a summary (killed: the
 /// exit contract already says a selected test failed), it fails to load (error, pending
-/// attribution), or the parent kills it at its deadline (timeout).
+/// attribution), or the parent kills it at its deadline (timeout). A child that dies of a signal
+/// before its deadline is `failChild`: only the deadline makes a timeout.
 ///
 /// `attribute_unmeasured` runs after the pool drains. A boot-error is not an outcome yet: the
 /// mutant sits in `unmeasured` until a reload control decides. If the file, not the mutation, is
@@ -294,8 +295,9 @@ module runner {
     }
   }
 
-  /// A harness failure while the tests ran (`test_error`), or an exit code that does not match
-  /// the payload. The reload control cannot explain it, so it stays `error`.
+  /// A harness failure while the tests ran (`test_error`), an exit code that does not match
+  /// the payload, or a signal the child died of before its deadline (`environment_crash`).
+  /// The reload control cannot explain it, so it stays `error`.
   action failChild = {
     nondet i = oneOf(Mutants)
     all {

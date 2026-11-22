@@ -25,7 +25,8 @@ module Sabaku
   #   candidate --(covering tests)--> queued --> running
   #        child exits 0            -> survived
   #        child exits 1            -> killed
-  #        child killed by signal   -> timeout
+  #        killed at its deadline   -> timeout
+  #        died of a signal itself  -> error (environment crash)
   #        anything/everything else -> error
   #
   # Two checks guard the score, both built from the same job shape as a mutant
@@ -651,9 +652,13 @@ module Sabaku
 
     def classify(entry, payload, status, duration)
       exit_status = status && status.exitstatus
+      # The parent's deadline is the only clock that makes a timeout. A signal the
+      # child met on its own (a native crash, the OOM killer) measured nothing, so it
+      # stays out of the denominator.
       if status && status.signaled?
-        return Result.new(mutant: entry.mutant, status: :timeout, duration: duration,
-                          message: "child died with signal #{status.termsig}")
+        return Result.new(mutant: entry.mutant, status: :error, duration: duration,
+                          reason: :environment_crash,
+                          message: "child died with signal #{status.termsig} before its deadline")
       end
       if payload.nil?
         # Exit status 1 already means "a selected test failed" (the child only

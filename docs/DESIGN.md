@@ -197,7 +197,7 @@ Result = Data.define(:mutant, :status, :duration, :failed_test, :message, :reaso
 # reason: one of Result::REASONS[status], or nil when the result was not classified
 #   survived  :not_detected | :not_infected
 #   timeout   :deadline
-#   error     :unverified_kill | :harness
+#   error     :environment_crash | :unverified_kill | :harness
 #   skipped   :fail_fast | :mutation_unloadable | :suite_unloadable
 # The report groups unscored results by reason, never by message text.
 # :skipped means --fail-fast stopped before this mutant was scheduled, or no
@@ -223,7 +223,8 @@ candidate --(no covering test)--> uncovered
 candidate --(covering tests, weak said not_infected)--> survived(:not_infected), no child
 candidate --(covering tests)--> queued --> running --(child exits 0)--> survived(:not_detected)
                                                  |--(child exits 1)--> killed
-                                                 |--(child killed by signal / deadline)--> timeout
+                                                 |--(parent kills it at the deadline)--> timeout(:deadline)
+                                                 |--(child dies of a signal before the deadline)--> error(:environment_crash)
                                                  |--(child exits 1 with no summary)--> killed
                                                  |--(mutated file does not load)--> skipped
                                                  |--(file cannot be reloaded)--> first-load child

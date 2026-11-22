@@ -15,7 +15,7 @@ module Sabaku
     REASON_LABELS = {
       not_detected: "not detected", not_infected: "not infected",
       deadline: "deadline",
-      unverified_kill: "unverified kill", harness: "harness",
+      environment_crash: "environment crash", unverified_kill: "unverified kill", harness: "harness",
       fail_fast: "fail-fast", mutation_unloadable: "mutation does not load",
       suite_unloadable: "suite does not load"
     }.freeze
