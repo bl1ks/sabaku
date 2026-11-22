@@ -140,6 +140,9 @@ Checked invariants:
 - `INV_unverified_incomplete`: a killer whose reload control fails leaves no row.
 - `INV_cache_hit_no_first_child`: a cache hit never starts a first child.
 - `INV_row_from_cache_no_sweep`: a cache hit with a stored row is not swept again.
+- `INV_dropped_has_cause`: a row is dropped exactly when it records why.
+- `INV_cause_matches_sweep`: a sweep failure cause needs a failed sweep, and `unverified_killer`
+  needs a killer whose reload control failed.
 - `INV_one_row_write`: a row is written at most once.
 - `INV_sweep_capacity`: at most `W` sweeps are in flight.
 - `INV_report_after_sweeps`: the report waits for every sweep.

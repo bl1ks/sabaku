@@ -54,6 +54,7 @@ Config = Data.define(
   :weak,         # Boolean, run the dry-run probe pass
   :kill_matrix,  # Boolean, sweep every killed mutant's selection
   :kill_matrix_scope, # Symbol, :class | :suite, where one test can make another redundant
+  :sweep_timeout, # Float | nil, deadline for one kill-matrix sweep; nil means :timeout
   :test_globs    # Array[String], test files to load; [] means test/**/*_test.rb
 )
 Config.default(**overrides) -> Config
@@ -220,7 +221,11 @@ Result = Data.define(:mutant, :status, :duration, :failed_test, :message, :reaso
 Kills = Data.define(:tested, :killers)            # killers ⊆ tested, both sorted
 
 # lib/sabaku/kill_matrix.rb
-KillMatrix.from(results, universe:, selected:, scope: :class)  # selected: {mutant id => test ids}
+KillMatrix.from(results, universe:, selected:, scope: :class, causes: {})
+# selected: {mutant id => test ids}. causes: {mutant id => cause}, from Runner#incomplete_causes
+KillMatrix::Incomplete = Data.define(:mutant, :status, :tested, :cause)
+# cause: :sweep_timeout | :sweep_crash | :bad_payload | :unverified_killer
+#        | :foreign_failed_test | :no_killer
 KillMatrix.group_of(test_id) -> String              # "Klass#method" -> "Klass"
 KillMatrix#verdicts -> Array[Verdict]               # one per test, sorted by id
 Verdict = Data.define(:test, :kind, :kills, :unique, :tested, :by, :provisional, :group,
@@ -258,7 +263,8 @@ status:
 ```
 killed (failed_test t, selected s) --(nothing after t in s)--> row {t}
 killed --(sweep child runs s after t)--> clean payload --(swept killers pass the reload check)--> row {t} ∪ failed
-                                    '--> timeout / crash / bad payload / a killer fails unmutated --> no row
+                                    '--> timeout / crash / bad payload / a killer fails unmutated --> no row, with that cause
+killed --(t is not in s)--> no row (:foreign_failed_test)
 survived --> row {} (every selected test already passed)
 ```
 

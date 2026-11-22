@@ -69,8 +69,9 @@ module Sabaku
 
     # A second child for a killed mutant: the mutation applied again, and the selected
     # tests the first child never reached run to completion. `failed_ids` stays nil
-    # unless the child finished cleanly.
-    Sweep = Struct.new(:index, :entry, :ids, :failed_ids, keyword_init: true) do
+    # unless the child finished cleanly, and then `failure` holds one of
+    # KillMatrix::CAUSES.
+    Sweep = Struct.new(:index, :entry, :ids, :failed_ids, :failure, keyword_init: true) do
       def first_load = entry.first_load
     end
 
@@ -83,6 +84,7 @@ module Sabaku
       @weak = weak
       @jobs = [Integer(config.respond_to?(:jobs) ? (config.jobs || 1) : 1), 1].max
       @timeout = Float(config.respond_to?(:timeout) ? (config.timeout || 5.0) : 5.0)
+      @sweep_timeout = Float((config.respond_to?(:sweep_timeout) && config.sweep_timeout) || @timeout)
       @isolation = (config.respond_to?(:isolation) ? config.isolation : :fork).to_sym
       @coverage_enabled = config.respond_to?(:coverage) ? config.coverage : true
       @fail_fast = config.respond_to?(:fail_fast) ? config.fail_fast : false
@@ -100,6 +102,7 @@ module Sabaku
       @controls = {}
       @load_hazards = {}
       @unmeasured = []
+      @incomplete_causes = {}
     end
 
     # mutants: Array[Mutant] -> Array[Result] in the same order.
@@ -124,6 +127,9 @@ module Sabaku
     def selections
       Array(@entries).to_h { |entry| [entry.mutant.id, entry.selected_ids] }
     end
+
+    # mutant id -> why its kill-matrix row is missing, one of KillMatrix::CAUSES.
+    attr_reader :incomplete_causes
 
     private
 
@@ -478,10 +484,11 @@ module Sabaku
 
       writer.close
       Job.new(pid: pid, reader: reader, started_at: started,
-              deadline: started + @timeout, sweep: sweep, pgroup: false)
+              deadline: started + @sweep_timeout, sweep: sweep, pgroup: false)
     rescue StandardError
       close_quietly(writer)
       close_quietly(reader)
+      sweep.failure = :sweep_crash
       nil
     end
 
@@ -595,7 +602,7 @@ module Sabaku
 
       writer.close
       Job.new(pid: pid, reader: reader, started_at: started,
-              deadline: started + @timeout + grace,
+              deadline: started + (sweep ? @sweep_timeout : @timeout) + grace,
               entry: subject.is_a?(Entry) ? subject : nil,
               control: subject.is_a?(Control) ? subject : nil,
               sweep: subject.is_a?(Sweep) ? subject : nil,
@@ -608,6 +615,8 @@ module Sabaku
         @controls[subject.key] = { ok: false, failed_id: nil, message: "#{e.class}: #{e.message}" }
       when Entry
         subject.result ||= error_result(subject, "#{e.class}: #{e.message}")
+      when Sweep
+        subject.failure = :sweep_crash
       end
       nil
     end
@@ -625,7 +634,11 @@ module Sabaku
       duration = clock - job.started_at
 
       if job.sweep
-        record_sweep(job.sweep, payload, status) unless timed_out
+        if timed_out
+          job.sweep.failure = :sweep_timeout
+        else
+          record_sweep(job.sweep, payload, status)
+        end
       elsif job.control
         record_control(job.control, payload, status, timed_out, duration)
       elsif timed_out
@@ -638,6 +651,7 @@ module Sabaku
     rescue StandardError => e
       if job.sweep
         job.sweep.failed_ids = nil
+        job.sweep.failure = :sweep_crash
       elsif job.control
         @controls[job.control.key] = { ok: false, failed_id: nil,
                                       message: "#{e.class}: #{e.message}" }
@@ -950,9 +964,9 @@ module Sabaku
           entry.result = result.with_kills(Kills.new(tested: entry.selected_ids, killers: []))
         elsif result.killed?
           tail = sweep_tail(entry)
-          next if tail.nil?
-
-          if tail.empty?
+          if tail.nil?
+            @incomplete_causes[entry.mutant.id] = :foreign_failed_test
+          elsif tail.empty?
             write_row(entry, [])
           else
             sweeps << Sweep.new(index: entry.index, entry: entry, ids: tail)
@@ -969,7 +983,13 @@ module Sabaku
       end
       swept = sweeps.select(&:failed_ids)
       verify_sweeps(swept)
-      swept.each { |sweep| write_row(sweep.entry, sweep.failed_ids) if sweep.failed_ids }
+      sweeps.each do |sweep|
+        if sweep.failed_ids
+          write_row(sweep.entry, sweep.failed_ids)
+        else
+          @incomplete_causes[sweep.entry.mutant.id] = sweep.failure
+        end
+      end
     end
 
     # The selected ids after the first failure, in selection order: the prefix already
@@ -985,10 +1005,11 @@ module Sabaku
     end
 
     def record_sweep(sweep, payload, status)
-      return unless payload && payload["swept"] && status&.exitstatus&.zero?
+      return sweep.failure = :sweep_crash unless payload && payload["swept"] && status&.exitstatus&.zero?
 
       failed = payload["failed_ids"]
-      return unless failed.is_a?(Array) && failed.all?(String) && (failed - sweep.ids).empty?
+      return sweep.failure = :bad_payload unless failed.is_a?(Array) && failed.all?(String) &&
+                                                 (failed - sweep.ids).empty?
 
       sweep.failed_ids = failed
     end
@@ -1016,13 +1037,19 @@ module Sabaku
 
       checks.each do |sweep, test|
         verdict = verdicts[kill_key(sweep.entry, test)]
-        sweep.failed_ids = nil unless verdict && verdict[:ok]
+        next if verdict && verdict[:ok]
+
+        sweep.failed_ids = nil
+        sweep.failure = :unverified_killer
       end
     end
 
     def write_row(entry, swept)
       killers = [entry.result.failed_test].compact | swept
-      return if killers.empty?
+      if killers.empty?
+        @incomplete_causes[entry.mutant.id] = :no_killer
+        return
+      end
 
       entry.result = entry.result.with_kills(Kills.new(tested: entry.selected_ids, killers: killers))
     end

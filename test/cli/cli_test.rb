@@ -428,6 +428,7 @@ class CLITest < Minitest::Test
 
     assert_equal 0, code
     assert_includes out, "--kill-matrix"
+    assert_includes out, "--sweep-timeout"
   end
 
   private

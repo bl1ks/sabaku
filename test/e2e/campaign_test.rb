@@ -207,6 +207,7 @@ class CampaignTest < Minitest::Test
     refute tests["test_sub_only"]["provisional"]
     incomplete = on["kill_matrix"]["incomplete"]
     assert_equal 1, incomplete.size
+    assert_equal "sweep_timeout", incomplete.first["cause"]
     hung = on["results"].find { |r| r["mutant"]["id"] == incomplete.first["mutant"] }
     assert_equal ["killed", "a * b"], [hung["status"], hung["mutant"]["replacement"]]
   end

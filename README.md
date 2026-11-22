@@ -101,6 +101,7 @@ tier has no test at all: the suite only exercises the ten-item tier.
 | `--[no-]weak` | on | probe the dry run and decide uninfected survivors without running them |
 | `--[no-]kill-matrix` | off | run every selected test against each killed mutant and report redundant tests; the score does not change |
 | `--kill-matrix-scope=class\|suite` | `class` | a test is redundant only next to tests of its own class, or next to any test |
+| `--sweep-timeout=SEC` | `--timeout` | deadline for one kill-matrix sweep, which runs every selected test after the first failure |
 | `--isolation=fork\|process` | `fork` | reload a preloaded suite, or boot a fresh process |
 | `--report=terminal\|json\|quiet` | `terminal` | output |
 | `--output=PATH` | none | write the JSON report |
@@ -150,8 +151,10 @@ with tests sorted by id, and a `kills` row on each result.
 
 The flag never changes a status, the score or the exit code. A sweep that times out, crashes,
 or names a killer that also fails with the file reloaded and no mutation leaves the mutant's
-status alone and gives it no row. The report counts these incomplete rows and marks every test
-one of them selected with `?`; completing that row can still change that test's verdict. A
+status alone and gives it no row. The report counts these incomplete rows by cause
+(`sweep_timeout`, `sweep_crash`, `bad_payload`, `unverified_killer`, `foreign_failed_test`,
+`no_killer`), names the five test classes they touch most, and suggests `--sweep-timeout` when
+the deadline is the main cause. It marks every test one of them selected with `?`; completing that row can still change that test's verdict. A
 `?` test can also become the dominator of a kept test, so while any row is incomplete, read the
 kept list and the unique counts as advice, not a settled answer. Rows are cached, and a cache
 warmed without the flag only pays for the tails.

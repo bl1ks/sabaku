@@ -62,14 +62,14 @@ class RunnerKillMatrixTest < Minitest::Test
     map
   end
 
-  def run_matrix(kill_matrix:, isolation: :fork, only: nil, weak: false, record: false)
+  def run_matrix(kill_matrix:, isolation: :fork, only: nil, weak: false, record: false, sweep_timeout: nil)
     in_project("matrix_minitest", glob: "test/*_case.rb") do |root|
       mutants = matrix_mutants(root)
       mutants = mutants.slice(*only) if only
       config = config_for(isolation: isolation, timeout: 2.0, kill_matrix: kill_matrix,
-                          output: File.join(@tmpdir, "report.json"))
+                          sweep_timeout: sweep_timeout, output: File.join(@tmpdir, "report.json"))
       adapter = record ? RecordingAdapter.new(@log, test_globs: @test_globs) : minitest_adapter
-      runner = Sabaku::Runner.new(config, analyzer: nil, adapter: adapter,
+      runner = @runner = Sabaku::Runner.new(config, analyzer: nil, adapter: adapter,
                                           coverage_map: matrix_map,
                                           weak: weak ? WeakLabel.new(mutants[:label].id) : nil)
       mutants.keys.zip(runner.call(mutants.values)).to_h
@@ -122,6 +122,19 @@ class RunnerKillMatrixTest < Minitest::Test
       assert_equal :killed, result.status
       assert_equal "MatrixTest#test_add_strong", result.failed_test
       assert_nil result.kills
+      assert_equal({ result.mutant.id => :sweep_timeout }, @runner.incomplete_causes)
+    end
+  end
+
+  def test_a_sweep_has_its_own_deadline
+    with_no_cache do
+      %i[fork process].each do |isolation|
+        result = run_matrix(kill_matrix: true, isolation: isolation, only: %i[minus], sweep_timeout: 0.001)[:minus]
+
+        assert_equal :killed, result.status, isolation
+        assert_nil result.kills, isolation
+        assert_equal({ result.mutant.id => :sweep_timeout }, @runner.incomplete_causes, isolation)
+      end
     end
   end
 
@@ -186,13 +199,14 @@ class RunnerKillMatrixTest < Minitest::Test
           map.record(id, { "lib/load_counter.rb" => [12, 13, 14] })
         end
         config = config_for(kill_matrix: true, output: File.join(@tmpdir, "report.json"))
-        Sabaku::Runner.new(config, adapter: minitest_adapter,
-                                   coverage_map: map).call([mutant]).first
+        @runner = Sabaku::Runner.new(config, adapter: minitest_adapter, coverage_map: map)
+        @runner.call([mutant]).first
       end
 
       assert_equal :killed, result.status, result.message
       assert_equal "LoadCounterTest#test_a_value", result.failed_test
       assert_nil result.kills
+      assert_equal({ result.mutant.id => :unverified_killer }, @runner.incomplete_causes)
     end
   end
 

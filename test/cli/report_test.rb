@@ -176,7 +176,8 @@ class ReportTest < Minitest::Test
       scored("m4", :killed, killers: %w[C#edge])
     ]
     matrix = Sabaku::KillMatrix.from(results, universe: %w[C#idle],
-                                              selected: { "m4" => %w[C#edge C#weak] })
+                                              selected: { "m4" => %w[C#edge C#weak] },
+                                              causes: { "m4" => :sweep_timeout })
     report(results).class.new(results, Sabaku::Config.default, kill_matrix: matrix)
   end
 
@@ -192,7 +193,9 @@ class ReportTest < Minitest::Test
     text = matrix_report.to_terminal
 
     assert_includes text, "kill matrix: 3 of 4 killed+survived mutants have a complete row"
-    assert_includes text, "1 incomplete"
+    assert_includes text, "1 incomplete: sweep timeout 1; tests marked ? touch one"
+    assert_includes text, "most incomplete rows hit the sweep deadline: raise --sweep-timeout (now 5.0s)"
+    assert_includes text, "incomplete by class: C 1"
     assert_includes text, "tests 6: kept 1, subsumed 1, duplicate 1, zero kills 2, idle 1"
     assert_match(/C#smoke\s+ran against 1 mutant, killed none/, text)
     assert_match(/C#idle\s+never selected/, text)
@@ -208,14 +211,16 @@ class ReportTest < Minitest::Test
     matrix = payload["kill_matrix"]
 
     assert_equal 3, matrix["rows"]
-    assert_equal [{ "mutant" => "m4", "status" => "killed", "tested" => 2 }], matrix["incomplete"]
+    assert_equal [{ "mutant" => "m4", "status" => "killed", "tested" => 2, "cause" => "sweep_timeout" }],
+                 matrix["incomplete"]
     assert_equal %w[C#edge C#idle C#smoke C#strong C#twin C#weak], matrix["tests"].map { |t| t["id"] }
     weak = matrix["tests"].find { |t| t["id"] == "C#weak" }
     assert_equal({ "id" => "C#weak", "verdict" => "subsumed", "kills" => 1, "unique" => 0,
                    "tested" => 2, "by" => "C#strong", "provisional" => true, "group" => "C",
                    "confidence" => "artifact", "tier" => "provisional" }, weak)
     assert_equal({ "kept" => 1, "subsumed" => 1, "duplicate" => 1, "zero" => 2, "idle" => 1,
-                   "provisional" => 2, "actionable" => 1, "artifact" => 0 }, matrix["summary"])
+                   "provisional" => 2, "actionable" => 1, "artifact" => 0,
+                   "incomplete_causes" => { "sweep_timeout" => 1 } }, matrix["summary"])
     assert_equal %w[C#strong C#twin C#weak], payload["results"].first["kills"]["killers"]
     assert_nil payload["results"].last["kills"]
   end

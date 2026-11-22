@@ -24,6 +24,7 @@ module Sabaku
     :weak,
     :kill_matrix,
     :kill_matrix_scope,
+    :sweep_timeout,
     :test_globs
   ) do
     def initialize(paths: [], exclude: [], operators: Operator::Registry.defaults,
@@ -31,7 +32,7 @@ module Sabaku
                    diff_ranges: nil, coverage: true, isolation: :fork,
                    report: :terminal, output: nil, env: {}, requires: [], setup: nil, setup_path: nil,
                    fail_fast: false, baseline: true, weak: true, kill_matrix: false, kill_matrix_scope: :class,
-                   test_globs: [])
+                   sweep_timeout: nil, test_globs: [])
       super(
         paths: Array(paths).map(&:to_s).freeze,
         exclude: Array(exclude).map(&:to_s).freeze,
@@ -53,6 +54,7 @@ module Sabaku
         weak: weak ? true : false,
         kill_matrix: kill_matrix ? true : false,
         kill_matrix_scope: kill_matrix_scope.to_sym,
+        sweep_timeout: sweep_timeout.nil? ? nil : Float(sweep_timeout),
         test_globs: Array(test_globs).map(&:to_s).freeze
       )
     end

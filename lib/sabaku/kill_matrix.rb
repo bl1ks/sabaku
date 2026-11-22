@@ -51,12 +51,23 @@ module Sabaku
       end
     end
 
-    Incomplete = Data.define(:mutant, :status, :tested)
+    # Why a scored mutant has no row. The runner writes one for every incomplete row; nil only
+    # when a caller of KillMatrix.from passed none.
+    #   sweep_timeout        the sweep child hit its deadline
+    #   sweep_crash          the sweep child died, exited non-zero, or sent no payload
+    #   bad_payload          the payload was malformed or named a test outside the tail
+    #   unverified_killer    a swept killer also fails with the file reloaded and no mutation
+    #   foreign_failed_test  the failed test is not one the mutant selected, so there is no tail
+    #   no_killer            the kill named no test and the sweep found none
+    CAUSES = %i[sweep_timeout sweep_crash bad_payload unverified_killer foreign_failed_test no_killer].freeze
+
+    Incomplete = Data.define(:mutant, :status, :tested, :cause)
 
     # universe: every test id the campaign knows. selected: {mutant id => selected test ids},
     # the only source for an incomplete row's tested set.
-    def self.from(results, universe:, selected: {}, scope: :class)
-      new(results, universe: universe, selected: selected, scope: scope)
+    # causes: {mutant id => one of CAUSES}, from Runner#incomplete_causes.
+    def self.from(results, universe:, selected: {}, scope: :class, causes: {})
+      new(results, universe: universe, selected: selected, scope: scope, causes: causes)
     end
 
     # A minitest id is "Klass#method", and Klass may hold "::".
@@ -67,7 +78,7 @@ module Sabaku
 
     attr_reader :rows, :incomplete, :verdicts, :scope
 
-    def initialize(results, universe:, selected: {}, scope: :class)
+    def initialize(results, universe:, selected: {}, scope: :class, causes: {})
       @scope = scope.to_sym
       raise Sabaku::Error, "kill-matrix scope must be one of #{SCOPES.join(", ")}" unless SCOPES.include?(@scope)
 
@@ -80,7 +91,8 @@ module Sabaku
           @rows[result.mutant.id] = result.kills
         else
           tested = Array(selected[result.mutant.id]).map(&:to_s).uniq.sort
-          @incomplete << Incomplete.new(mutant: result.mutant, status: result.status, tested: tested)
+          @incomplete << Incomplete.new(mutant: result.mutant, status: result.status, tested: tested,
+                                        cause: causes[result.mutant.id])
         end
       end
       tests = Array(universe).map(&:to_s) + @rows.values.flat_map(&:tested) +
@@ -98,11 +110,18 @@ module Sabaku
               .sort_by { |verdict| [-verdict.unique, -verdict.kills, verdict.test] }
     end
 
+    # [[group, incomplete rows that selected a test of it]], most first.
+    def incomplete_groups
+      incomplete.flat_map { |row| row.tested.map { |test| group(test) }.uniq }
+                .tally.sort_by { |name, count| [-count, name] }
+    end
+
     def summary
       counts = VERDICTS.to_h { |kind| [kind, verdicts.count { |verdict| verdict.kind == kind }] }
       counts.merge(provisional: verdicts.count(&:provisional),
                    actionable: verdicts.count { |verdict| verdict.tier == :actionable },
-                   artifact: verdicts.count { |verdict| verdict.tier == :artifact })
+                   artifact: verdicts.count { |verdict| verdict.tier == :artifact },
+                   incomplete_causes: incomplete.filter_map(&:cause).tally)
     end
 
     def to_h
@@ -111,7 +130,7 @@ module Sabaku
         scope: scope,
         groups: verdicts.map(&:group).uniq.size,
         incomplete: incomplete.map do |row|
-          { mutant: row.mutant.id, status: row.status, tested: row.tested.size }
+          { mutant: row.mutant.id, status: row.status, tested: row.tested.size, cause: row.cause }
         end,
         tests: verdicts.map(&:to_h),
         summary: summary

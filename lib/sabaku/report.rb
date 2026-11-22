@@ -239,10 +239,7 @@ module Sabaku
       scored = kill_matrix.rows.size + kill_matrix.incomplete.size
       out = +"#{file_lines.empty? ? "" : "\n"}kill matrix: #{kill_matrix.rows.size} of #{scored} " \
              "killed+survived mutants have a complete row\n"
-      unless kill_matrix.incomplete.empty?
-        out << format("  %d incomplete (a sweep did not finish or a killer failed with no " \
-                      "mutation); tests marked ? touch one\n", kill_matrix.incomplete.size)
-      end
+      out << incomplete_lines unless kill_matrix.incomplete.empty?
       out << format("  tests %d: kept %d, subsumed %d, duplicate %d, zero kills %d, idle %d\n",
                     kill_matrix.verdicts.size, summary[:kept], summary[:subsumed],
                     summary[:duplicate], summary[:zero], summary[:idle])
@@ -275,6 +272,20 @@ module Sabaku
       out << matrix_list("top unique killers", kill_matrix.ranking) do |verdict|
         format("unique %d  kills %d", verdict.unique, verdict.kills)
       end
+      out
+    end
+
+    def incomplete_lines
+      causes = kill_matrix.summary[:incomplete_causes].sort_by { |cause, count| [-count, cause] }
+      named = causes.map { |cause, count| "#{cause.to_s.tr("_", " ")} #{count}" }.join(", ")
+      out = +format("  %d incomplete%s; tests marked ? touch one\n", kill_matrix.incomplete.size,
+                    named.empty? ? "" : ": #{named}")
+      if causes.first&.first == :sweep_timeout
+        out << format("  most incomplete rows hit the sweep deadline: raise --sweep-timeout (now %.1fs)\n",
+                      config.sweep_timeout || config.timeout)
+      end
+      top = kill_matrix.incomplete_groups.first(5).map { |name, count| "#{name} #{count}" }
+      out << "  incomplete by class: #{top.join(", ")}\n" if kill_matrix.scope == :class && top.any?
       out
     end
 

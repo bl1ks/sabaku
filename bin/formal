@@ -29,7 +29,7 @@ invariants_matrix=(INV_sweep_keeps_status INV_complete_row_is_truth INV_killed_r
                    INV_survivor_row_empty INV_row_only_for_scored INV_failed_sweep_incomplete
                    INV_unverified_incomplete INV_cache_hit_no_first_child
                    INV_row_from_cache_no_sweep INV_one_row_write INV_sweep_capacity
-                   INV_report_after_sweeps)
+                   INV_report_after_sweeps INV_dropped_has_cause INV_cause_matches_sweep)
 
 echo "== lean: build and prove =="
 (cd formal/lean && lake build)

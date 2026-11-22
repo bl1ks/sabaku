@@ -36,3 +36,4 @@ flip_matrix trust_unverified FAULT_trust_unverified
 flip_matrix report_early FAULT_report_early
 flip_matrix ignore_capacity FAULT_ignore_capacity
 flip_matrix sweep_cached_row FAULT_sweep_cached_row
+flip_matrix drop_without_cause FAULT_drop_without_cause

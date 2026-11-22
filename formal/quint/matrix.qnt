@@ -10,7 +10,8 @@
 ///
 /// What the model checks is that the pass never writes a status, and that a row is either the
 /// whole truth or absent. A sweep that fails, or a swept killer whose reload control fails,
-/// leaves the mutant scored with no row.
+/// leaves the mutant scored with no row, and that missing row always says why
+/// (`Runner#incomplete_causes`).
 ///
 /// Not modelled: the test-order assumption the tail sweep rests on (a test's verdict does not
 /// depend on the tests before it). The model's `truth` is order-free by construction.
@@ -24,7 +25,7 @@ module matrix {
   pure val Mutants = 0.to(N - 1)
   pure val Tests = 0.to(T - 1)
 
-  /// Fault switches. The honest model has all eight false. `variants.sh` flips exactly one line
+  /// Fault switches. The honest model has all nine false. `variants.sh` flips exactly one line
   /// per variant, and the gate requires an invariant to fail there.
   /// A failed sweep downgrades the kill it was asked about.
   pure val FAULT_sweep_writes_status = false
@@ -42,6 +43,8 @@ module matrix {
   pure val FAULT_ignore_capacity = false
   /// A cache hit that already has its row is swept again.
   pure val FAULT_sweep_cached_row = false
+  /// A row is dropped without recording why.
+  pure val FAULT_drop_without_cause = false
 
   type MState = {
     // "" until classified, then "killed", "survived", "timeout" or "error".
@@ -64,12 +67,16 @@ module matrix {
     rowWrites: int,
     // A swept killer failed its reload control.
     unverified: bool,
+    // "none", or why the sweep failed: "sweep_timeout", "sweep_crash", "bad_payload".
+    failure: str,
+    // "none", or why the row was dropped: a sweep failure, "unverified_killer", "no_killer".
+    cause: str,
   }
 
   pure val Fresh: MState = {
     status: "", failedTest: -1, statusWrites: 0, cached: "none", firstChild: false,
     sweep: "idle", tail: Set(), observed: Set(), row: "none", killers: Set(), rowWrites: 0,
-    unverified: false,
+    unverified: false, failure: "none", cause: "none",
   }
 
   var truth: int -> Set[int]
@@ -198,14 +205,16 @@ module matrix {
   /// A deadline, a signal, a boot error or a payload `record_sweep` refuses.
   action failSweep = {
     nondet i = oneOf(Mutants)
+    nondet why = oneOf(Set("sweep_timeout", "sweep_crash", "bad_payload"))
     val s = m.get(i)
     all {
       not(reported),
       s.sweep == "running",
       if (FAULT_sweep_writes_status)
-        update(i, { ...s, sweep: "failed", status: "error", statusWrites: s.statusWrites + 1 })
+        update(i, { ...s, sweep: "failed", failure: why, status: "error",
+                    statusWrites: s.statusWrites + 1 })
       else
-        update(i, { ...s, sweep: "failed" }),
+        update(i, { ...s, sweep: "failed", failure: why }),
     }
   }
 
@@ -244,6 +253,11 @@ module matrix {
     nondet i = oneOf(Mutants)
     val s = m.get(i)
     val first = if (s.failedTest >= 0) Set(s.failedTest) else Set()
+    val cause =
+      if (FAULT_drop_without_cause) "none"
+      else if (s.sweep == "failed") s.failure
+      else if (s.unverified) "unverified_killer"
+      else "no_killer"
     all {
       not(reported),
       s.row == "none",
@@ -252,7 +266,7 @@ module matrix {
       if (FAULT_failed_sweep_complete and s.sweep == "failed")
         update(i, { ...s, row: "complete", killers: first, rowWrites: s.rowWrites + 1 })
       else
-        update(i, { ...s, row: "dropped" }),
+        update(i, { ...s, row: "dropped", cause: cause }),
     }
   }
 
@@ -309,6 +323,16 @@ module matrix {
 
   val INV_row_from_cache_no_sweep =
     Mutants.forall(i => m.get(i).cached == "with_row" implies m.get(i).sweep == "idle")
+
+  val INV_dropped_has_cause = Mutants.forall(i =>
+    val s = m.get(i)
+    (s.row == "dropped") iff (s.cause != "none"))
+
+  val INV_cause_matches_sweep = Mutants.forall(i =>
+    val s = m.get(i)
+    (s.cause == "unverified_killer" implies s.unverified) and
+      (Set("sweep_timeout", "sweep_crash", "bad_payload").contains(s.cause)
+        implies s.sweep == "failed"))
 
   val INV_one_row_write = Mutants.forall(i => m.get(i).rowWrites <= 1)
 

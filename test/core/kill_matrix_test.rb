@@ -77,6 +77,19 @@ class KillMatrixTest < Minitest::Test
     assert_equal :zero, kind(m, "c")
   end
 
+  def test_an_incomplete_row_says_why_and_counts_by_class
+    hung = Sabaku::Result.new(mutant: Mutant.new("m2"), status: :killed, failed_test: "A#x")
+    crashed = Sabaku::Result.new(mutant: Mutant.new("m3"), status: :killed, failed_test: "B#y")
+    m = Sabaku::KillMatrix.from([killed("m1", %w[A#x]), hung, crashed], universe: [],
+                                selected: { "m2" => %w[A#x A#w B#y], "m3" => %w[B#y] },
+                                causes: { "m2" => :sweep_timeout, "m3" => :sweep_crash })
+
+    assert_equal %i[sweep_timeout sweep_crash], m.incomplete.map(&:cause)
+    assert_equal({ mutant: "m2", status: :killed, tested: 3, cause: :sweep_timeout }, m.to_h[:incomplete].first)
+    assert_equal({ sweep_timeout: 1, sweep_crash: 1 }, m.summary[:incomplete_causes])
+    assert_equal [["B", 2], ["A", 1]], m.incomplete_groups
+  end
+
   def test_unscored_results_are_outside_the_matrix
     timeout = Sabaku::Result.new(mutant: Mutant.new("m2"), status: :timeout)
     m = matrix([killed("m1", %w[a]), timeout], universe: %w[a])
@@ -97,7 +110,7 @@ class KillMatrixTest < Minitest::Test
 
     assert_equal %w[a b c], m.to_h[:tests].map { |test| test[:id] }
     assert_equal({ kept: 1, subsumed: 0, duplicate: 1, zero: 0, idle: 1, provisional: 0,
-                   actionable: 0, artifact: 1 }, m.to_h[:summary])
+                   actionable: 0, artifact: 1, incomplete_causes: {} }, m.to_h[:summary])
   end
 
   def test_a_test_class_is_its_own_dominance_group
