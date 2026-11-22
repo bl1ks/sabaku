@@ -55,6 +55,18 @@ class RunnerTest < Minitest::Test
     end
   end
 
+  def test_an_uncovered_mutant_says_why_no_test_ran_it
+    expected = { instrumented: :not_reached, uninstrumented: :uninstrumented, not_loaded: :not_loaded }
+    expected.each do |state, reason|
+      map = tiny_coverage_map
+      map.describe(Sabaku::CoverageMap::FileCoverage.new(path: "lib/calc.rb", state: state))
+
+      result = run_tiny(map: map).last
+
+      assert_equal [:uncovered, reason], [result.status, result.reason], state
+    end
+  end
+
   def test_fork_isolation_statuses
     results = run_tiny(isolation: :fork)
 

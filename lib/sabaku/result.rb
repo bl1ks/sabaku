@@ -19,6 +19,9 @@ module Sabaku
     #   skipped   fail_fast: --fail-fast stopped before it was scheduled;
     #             mutation_unloadable: the unmutated file reloads, the mutated one does not;
     #             suite_unloadable: the first-load surface could not boot with it
+    #   uncovered not_loaded: the file never loaded; uninstrumented: it loaded without
+    #             line counters; load_time_only: only the boot ran the line;
+    #             not_reached: the file was measured and no test ran the line
     #   timeout   deadline: the parent killed the child at its deadline
     #   error     environment_crash: the child died of a signal before its deadline;
     #             unverified_kill: the killing test fails with no mutation applied;
@@ -28,7 +31,7 @@ module Sabaku
       survived: %i[not_detected not_infected],
       timeout: %i[deadline],
       error: %i[environment_crash unverified_kill harness],
-      uncovered: [],
+      uncovered: %i[not_loaded uninstrumented load_time_only not_reached],
       skipped: %i[fail_fast mutation_unloadable suite_unloadable]
     }.transform_values(&:freeze).freeze
 

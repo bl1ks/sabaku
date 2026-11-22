@@ -49,6 +49,7 @@ sabaku 0.1.0  files=1  mutants=11  jobs=1
     not detected 1, not infected 1
   timeout        0    0.0%  <- killed by the clock, not by a test
   uncovered      1    9.1%  (no test covers the line; not scored)
+    not reached 1
 
   mutation score   80.0%  (killed / killed+survived+timeout)
 
@@ -167,7 +168,14 @@ CoverageMap (which test hits which line) --- tests_for ---> selected test ids --
    productivity, then by offset. The line keeps the first `--per-line` that re-parse, with no
    random draw, so two runs on the same code keep the same mutants and the cache stays usable.
 4. **Collect coverage.** The suite runs once, instrumented, and every test's newly-hit lines are
-   recorded. A mutant with no covering test is `uncovered`: not run, not scored.
+   recorded. A mutant with no covering test is `uncovered`: not run, not scored. Its reason
+   says why: the file was `not_loaded` by any test, it was loaded without line counters
+   (`uninstrumented`: loaded before Coverage started and not reloadable), only the boot ran the
+   line (`load_time_only`), or the file was measured and no test reached the line
+   (`not_reached`). A file with nothing scored names the reason in `per file:`, the JSON report
+   lists those files under `coverage_files`, and a file one test loaded lazily names that test.
+   A project that starts Coverage itself without line counters (SimpleCov's oneshot mode) stops
+   the campaign with that cause instead of reporting every file uninstrumented.
 5. **Probe the values.** The suite runs a second time with probe-instrumented copies of the
    mutated files loaded over the originals. A probe returns the original value, then evaluates
    each replacement against it. Every covering test that reached the expression is recorded, and
@@ -263,7 +271,7 @@ These are real and deliberate; know them before trusting a score.
   literals, locals, ivars, `self` and constants. A method call anywhere in the expression keeps
   its mutant on the real-run path, so a missing `not_infected` label is not a correctness bug.
 - **Lines executed only at load time** are not attributed to any test, so a mutant whose only
-  execution is class-body code is `uncovered`.
+  execution is class-body code is `uncovered` with reason `load_time_only`.
 - **An endless method (`def m = expr`) never reports a per-test hit** on its own line: Ruby marks
   that line while the class body runs, and a call does not increment it again. Those mutants are
   not `uncovered`; they run every test, because no counter can say which test called the method

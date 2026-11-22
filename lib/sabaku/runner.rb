@@ -161,11 +161,13 @@ module Sabaku
                   else
                     "no tests found in the project"
                   end
+        reason = @coverage_enabled ? @selection.uncovered_reason(mutant, source) : nil
         return Entry.new(
           index: index,
           mutant: mutant,
           selected_ids: [],
-          result: Result.new(mutant: mutant, status: :uncovered, duration: 0.0, message: message)
+          result: Result.new(mutant: mutant, status: :uncovered, duration: 0.0, reason: reason,
+                             message: message)
         )
       end
 

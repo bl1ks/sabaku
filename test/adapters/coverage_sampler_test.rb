@@ -167,6 +167,62 @@ class CoverageSamplerTest < Minitest::Test
     end
   end
 
+  def attribution_sources(*names)
+    names.map { |name| Sabaku::Source.new("lib/#{name}.rb", File.read("lib/#{name}.rb")) }
+  end
+
+  # Five reasons leave a line without a test, and the sampler is the one place that
+  # can tell them apart: it holds the snapshot right after boot and every test's delta.
+  def test_the_sampler_records_how_each_target_file_was_loaded
+    in_project("attribution_minitest", glob: "test/*_case.rb") do
+      map = Sabaku::Adapters::CoverageSampler.new(
+        config_for, minitest_adapter, attribution_sources("eager", "lazy", "never")
+      ).call
+
+      assert_equal :instrumented, map.file("lib/eager.rb").state
+      assert map.load_time_only?("lib/eager.rb", 12), "the class body ran `rule` at boot only"
+      refute map.load_time_only?("lib/eager.rb", 15), "a test ran Eager.check"
+      refute map.load_time_only?("lib/eager.rb", 19), "nothing ran Eager.untested"
+      lazy = map.file("lib/lazy.rb")
+      assert_equal :loaded_during_test, lazy.state
+      assert_equal "AttributionTest#test_lazy", lazy.loaded_by
+      assert_equal :not_loaded, map.file("lib/never.rb").state
+    end
+  end
+
+  # A file loaded before Coverage.start that refuses a second load has no counters.
+  # One such file must not stop sampling the others.
+  def test_a_preloaded_file_that_cannot_reload_is_uninstrumented_and_the_rest_is_sampled
+    in_project("attribution_minitest", glob: "test/*_case.rb") do
+      require File.expand_path("lib/preloaded.rb")
+
+      map = Sabaku::Adapters::CoverageSampler.new(
+        config_for, minitest_adapter, attribution_sources("preloaded", "eager")
+      ).call
+
+      assert_equal :uninstrumented, map.file("lib/preloaded.rb").state
+      assert_includes map.tests_for("lib/eager.rb", 15), "AttributionTest#test_check"
+    end
+  end
+
+  # SimpleCov's oneshot mode leaves no `lines` counters. Sampling it would call every
+  # file uninstrumented, so the sampler stops and names the cause.
+  def test_coverage_started_without_line_counters_stops_the_sampler
+    in_project("attribution_minitest", glob: "test/*_case.rb") do
+      require "coverage"
+      ::Coverage.start(oneshot_lines: true)
+      error = assert_raises(Sabaku::CoverageError) do
+        Sabaku::Adapters::CoverageSampler.new(
+          config_for, minitest_adapter, attribution_sources("eager")
+        ).call
+      end
+
+      assert_match(/lines/, error.message)
+    ensure
+      ::Coverage.result if ::Coverage.running?
+    end
+  end
+
   def test_a_red_suite_stops_the_campaign_before_it_scores_anything
     in_project("failing_minitest", glob: "test/*_case.rb") do
       source = Sabaku::Source.new("lib/thing.rb", File.read("lib/thing.rb"))

@@ -22,6 +22,7 @@ sabaku 0.1.0  files=1  mutants=5  jobs=1
     not detected 1, not infected 0
   timeout        0    0.0%  <- killed by the clock, not by a test
   uncovered      1   20.0%  (no test covers the line; not scored)
+    not reached 1
 
   mutation score   75.0%  (killed / killed+survived+timeout)
 

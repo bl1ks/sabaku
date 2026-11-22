@@ -63,9 +63,10 @@ module Sabaku
         # mutated files before we started Coverage; Ruby only instruments files
         # when they are compiled, so those files would silently report no hits.
         # Reload exactly those targets now, while Coverage is on.
-        ensure_targets_instrumented!(targets)
+        unreloadable = ensure_targets_instrumented!(targets)
         previous = snapshot
         map = CoverageMap.empty
+        files = describe_boot(targets, previous, unreloadable)
 
         failures = []
         @adapter.test_ids.each do |test_id|
@@ -80,8 +81,10 @@ module Sabaku
           current = snapshot
           hits = diff_hits(previous, current, targets)
           map.record(test_id, hits) unless hits.empty?
+          note_first_loads(files, hits, test_id)
           previous = current
         end
+        files.each_value { |file| map.describe(file) }
 
         verify_baseline!(failures)
         @weak_report = collect_weak(targets, map)
@@ -206,6 +209,40 @@ module Sabaku
         targets
       end
 
+      # relative path => FileCoverage, from the snapshot taken right after boot. A file
+      # whose reload raised has counters for an iseq the program no longer runs, and a
+      # file absent from the snapshot is uninstrumented when Ruby already loaded it and
+      # not loaded otherwise; the last may still change while a test runs.
+      def describe_boot(targets, boot, unreloadable)
+        files = {}
+        targets.group_by { |_absolute, relative| relative }.each do |relative, pairs|
+          absolutes = pairs.map(&:first)
+          lines = absolutes.filter_map { |absolute| boot[absolute] }.first
+          state = if unreloadable.include?(relative)
+                    :uninstrumented
+                  elsif lines
+                    :instrumented
+                  elsif absolutes.any? { |absolute| loaded_feature?(absolute) }
+                    :uninstrumented
+                  else
+                    :not_loaded
+                  end
+          boot_lines = state == :instrumented ? changed_lines(lines, nil, @wanted_lines && @wanted_lines[relative]) : []
+          files[relative] = CoverageMap::FileCoverage.new(path: relative, state: state, boot_lines: boot_lines)
+        end
+        files
+      end
+
+      # A test that requires a file the boot did not load owns its class body.
+      def note_first_loads(files, hits, test_id)
+        hits.each_key do |relative|
+          file = files[relative]
+          next unless file&.state == :not_loaded
+
+          files[relative] = file.with(state: :loaded_during_test, loaded_by: test_id)
+        end
+      end
+
       # The lines the runner can ask about: every mutant's own span plus the
       # statement span it falls back to when line coverage is coarse. Recording
       # only these lines keeps every selection query identical while skipping
@@ -238,11 +275,14 @@ module Sabaku
         raw = ::Coverage.peek_result
         result = {}
         raw.each do |file, data|
-          lines = if data.is_a?(Hash)
-                    data[:lines] || data["lines"]
-                  else
-                    data
-                  end
+          lines = data.is_a?(Hash) ? data[:lines] : data
+          if lines.nil? && data.is_a?(Hash)
+            raise CoverageError,
+                  "Coverage is already running without line counters (#{data.keys.join(", ")}), " \
+                  "so no test can be attributed to a line. Start the suite without it: for " \
+                  "SimpleCov, skip SimpleCov.start under sabaku, e.g. --env=SKIP_SIMPLECOV=1 " \
+                  "with a guard in test_helper"
+          end
           result[file] = lines if lines
         end
         result
@@ -252,24 +292,27 @@ module Sabaku
       # (it is absent from peek_result). Re-load it under coverage once. This
       # only applies to files already in $LOADED_FEATURES: a source the tests
       # never load must stay unloaded (its mutants are legitimately uncovered,
-      # and loading it here could run side effects).
+      # and loading it here could run side effects). A file that refuses the
+      # second load stays without live counters; the others are still sampled.
+      # -> Array[String] the relative paths whose reload raised
       def ensure_targets_instrumented!(targets)
         current = snapshot
         reloaded = {}
+        failed = []
         targets.each do |absolute, relative|
           next if current.key?(absolute)
           next if reloaded[relative]
           next unless File.file?(absolute)
           next unless loaded_feature?(absolute)
 
+          reloaded[relative] = true
           begin
             quietly { load absolute }
-            reloaded[relative] = true
-          rescue StandardError, ScriptError => e
-            raise Sabaku::Error,
-                  "failed to reload #{relative} for coverage: #{e.class}: #{e.message}"
+          rescue StandardError, ScriptError
+            failed << relative
           end
         end
+        failed
       end
 
       def loaded_feature?(absolute)

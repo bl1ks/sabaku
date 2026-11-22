@@ -16,4 +16,8 @@ module Sabaku
   # Raised when a setup hook or a required boot file fails. The project asked
   # for that code to run, so the campaign stops instead of scoring without it.
   class BootError < Error; end
+
+  # Raised when Coverage is already running without line counters (SimpleCov's oneshot
+  # mode). Every file would read as uninstrumented, so sampling stops instead.
+  class CoverageError < Error; end
 end

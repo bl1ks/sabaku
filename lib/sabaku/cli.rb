@@ -86,7 +86,7 @@ module Sabaku
       results = runner.call(mutants)
 
       matrix = kill_matrix(cfg, results, runner, coverage_map, adapter)
-      report = Report.new(results, cfg, kill_matrix: matrix)
+      report = Report.new(results, cfg, kill_matrix: matrix, coverage_files: coverage_map.files)
       emit(report, cfg)
       errored = report.counts[:error]
       if errored.positive?
@@ -285,8 +285,8 @@ module Sabaku
 
       sampler = Adapters::CoverageSampler.new(cfg, adapter, sources, mutants: mutants)
       [sampler.call, sampler.weak_report]
-    rescue BaselineError, BootError
-      # Not a coverage problem: the project has to fix its suite or its setup.
+    rescue BaselineError, BootError, CoverageError
+      # The project has to fix its suite, its setup, or the Coverage it started.
       # Falling back to running every test would score failing tests as kills,
       # and a boot hook that did not run would silently change the measurement.
       raise

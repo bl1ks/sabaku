@@ -41,6 +41,17 @@ module Sabaku
       endless_def_lines(source).key?(mutant.line)
     end
 
+    # Why `tests_for` came back empty: one of Result::REASONS[:uncovered], or nil when
+    # the coverage pass did not describe the file.
+    def uncovered_reason(mutant, source)
+      file = @coverage_map.file(mutant.path)
+      return nil if file.nil?
+      return file.state if %i[not_loaded uninstrumented].include?(file.state)
+
+      lines = mutant.line..source.line_of(mutant.end_offset - 1)
+      lines.any? { |line| @coverage_map.load_time_only?(mutant.path, line) } ? :load_time_only : :not_reached
+    end
+
     private
 
     # DefNode#endless? is not in every Prism this gem runs on; a missing `end` keyword is

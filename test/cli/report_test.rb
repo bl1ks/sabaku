@@ -140,6 +140,23 @@ class ReportTest < Minitest::Test
     refute_includes text, "--fail-fast"
   end
 
+  def test_uncovered_mutants_are_split_by_why_no_test_ran_them
+    results = [
+      Sabaku::Result.new(mutant: mutant(path: "lib/a.rb"), status: :uncovered, reason: :uninstrumented),
+      Sabaku::Result.new(mutant: mutant(path: "lib/b.rb"), status: :uncovered, reason: :not_reached),
+      Sabaku::Result.new(mutant: mutant(path: "lib/b.rb"), status: :killed)
+    ]
+    files = { "lib/a.rb" => Sabaku::CoverageMap::FileCoverage.new(path: "lib/a.rb", state: :uninstrumented),
+              "lib/c.rb" => Sabaku::CoverageMap::FileCoverage.new(path: "lib/c.rb", state: :instrumented) }
+    doc = Sabaku::Report.new(results, Sabaku::Config.default, coverage_files: files)
+
+    assert_includes doc.status_lines, "uninstrumented 1, not reached 1"
+    assert_match(%r{lib/a.rb\s+0/0\s+0.0%  \(uninstrumented\)}, doc.file_lines)
+    payload = JSON.parse(doc.to_json)
+    assert_equal [{ "path" => "lib/a.rb", "state" => "uninstrumented", "boot_lines" => [], "loaded_by" => nil }],
+                 payload["coverage_files"]
+  end
+
   MatrixMutant = Struct.new(:id, :path, :line, :column, :operator, :node_kind, :original,
                             :replacement, :description, keyword_init: true)
 

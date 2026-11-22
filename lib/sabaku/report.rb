@@ -15,6 +15,8 @@ module Sabaku
     REASON_LABELS = {
       not_detected: "not detected", not_infected: "not infected",
       deadline: "deadline",
+      not_loaded: "not loaded", uninstrumented: "uninstrumented", load_time_only: "load-time only",
+      not_reached: "not reached",
       environment_crash: "environment crash", unverified_kill: "unverified kill", harness: "harness",
       fail_fast: "fail-fast", mutation_unloadable: "mutation does not load",
       suite_unloadable: "suite does not load"
@@ -27,10 +29,12 @@ module Sabaku
     attr_reader :results, :config, :kill_matrix
 
     # kill_matrix: a KillMatrix when the campaign ran with --kill-matrix, else nil.
-    def initialize(results, config, kill_matrix: nil)
+    # coverage_files: CoverageMap#files, how the coverage pass saw each target file.
+    def initialize(results, config, kill_matrix: nil, coverage_files: {})
       @results = results
       @config = config
       @kill_matrix = kill_matrix
+      @coverage_files = coverage_files
     end
 
     def counts
@@ -205,10 +209,27 @@ module Sabaku
       out = +"per file:\n"
       widest = per_file.map { |f| f[:path].length }.max
       per_file.each do |file|
-        out << format("  %-#{widest}s  %3d/%-3d %5.1f%%\n",
-                      file[:path], file[:killed], file[:counted], file[:rate] * 100)
+        out << format("  %-#{widest}s  %3d/%-3d %5.1f%%%s\n",
+                      file[:path], file[:killed], file[:counted], file[:rate] * 100, file_note(file))
       end
       out
+    end
+
+    # A file with nothing scored says why, and a file a test loaded says which test, since
+    # that test alone ran its class body.
+    def file_note(file)
+      described = @coverage_files[file[:path]]
+      return "  (loaded lazily by #{described.loaded_by})" if described&.state == :loaded_during_test
+      return "" unless file[:counted].zero?
+
+      reasons = results.select { |r| r.mutant.path == file[:path] && r.status == :uncovered }.filter_map(&:reason)
+      reasons.empty? ? "" : "  (#{reasons.tally.max_by(&:last).first.to_s.tr("_", " ")})"
+    end
+
+    # The files the coverage pass described that hold an uncovered mutant.
+    def uncovered_files
+      paths = results.select { |result| result.status == :uncovered }.map { |result| result.mutant.path }.uniq
+      paths.sort.filter_map { |path| @coverage_files[path] }
     end
 
     def kill_matrix_lines
@@ -293,6 +314,7 @@ module Sabaku
         results: results.map(&:to_h),
         survived_reasons: survivor_reasons.transform_keys(&:to_s),
         reasons: reasons.to_h { |status, tally| [status, tally.transform_keys(&:to_s)] },
+        coverage_files: uncovered_files.map(&:to_h),
         survivors: survivors.map do |result|
           mutant = result.mutant
           { path: mutant.path, line: mutant.line, column: mutant.column,

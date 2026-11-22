@@ -8,6 +8,26 @@ module Sabaku
   # repo-relative strings so the whole map survives a JSON round trip through
   # the cache and still lines up with `Mutant#path`.
   class CoverageMap
+    # How the coverage pass saw one target file. A line no test ran means different
+    # things depending on it: the file never loaded, it loaded without counters, or it
+    # was measured and nothing reached the line.
+    #
+    #   boot_lines  lines with a count right after boot, before the first test
+    #   loaded_by   the test during which the file first appeared (:loaded_during_test)
+    FileCoverage = Data.define(:path, :state, :boot_lines, :loaded_by)
+
+    class FileCoverage
+      STATES = %i[not_loaded uninstrumented loaded_during_test instrumented].freeze
+
+      def initialize(path:, state:, boot_lines: [], loaded_by: nil)
+        state = state.to_sym
+        raise ArgumentError, "unknown file coverage state #{state.inspect}" unless STATES.include?(state)
+
+        super(path: path.to_s, state: state, boot_lines: boot_lines.map { |line| Integer(line) }.sort.freeze,
+              loaded_by: loaded_by&.to_s)
+      end
+    end
+
     # An empty map is a valid map: it means "no line is covered by any test".
     def self.empty
       new
@@ -30,6 +50,9 @@ module Sabaku
         end
         map.record(test_id.to_s, normalized)
       end
+      (hash["files"] || hash[:files] || {}).each_value do |file|
+        map.describe(FileCoverage.new(**file.transform_keys(&:to_sym)))
+      end
       map
     end
 
@@ -38,6 +61,31 @@ module Sabaku
       @hits = {}
       # path => line => [test_id, ...] (already unique per test/line)
       @index = {}
+      # path => FileCoverage
+      @files = {}
+    end
+
+    def describe(file)
+      @files[file.path] = file
+      self
+    end
+
+    def file(path)
+      @files[path.to_s]
+    end
+
+    def files
+      @files.dup
+    end
+
+    # The boot ran the line and no test did: a class body DSL, a `sig` block, a
+    # schema declared at load time. Only a test that loaded or reloaded the file
+    # could own it.
+    def load_time_only?(path, line)
+      described = file(path)
+      return false if described.nil? || !described.boot_lines.include?(line)
+
+      tests_for(path, line).empty?
     end
 
     # Record that +test_id+ hit +hits+ (path => Array[Integer] | Set[Integer]).
@@ -118,6 +166,7 @@ module Sabaku
       merged = self.class.new
       each_hit { |test_id, hits| merged.record(test_id, hits) }
       other.each_hit { |test_id, hits| merged.record(test_id, hits) }
+      [files, other.files].each { |described| described.each_value { |file| merged.describe(file) } }
       merged
     end
 
@@ -143,7 +192,8 @@ module Sabaku
     end
 
     # Deterministic JSON-friendly form:
-    #   {"tests" => {test_id => {path => sorted_lines}}}
+    #   {"tests" => {test_id => {path => sorted_lines}}, "files" => {path => FileCoverage#to_h}}
+    # "files" is present only when the sampler described a file.
     def to_h
       tests = {}
       @hits.keys.sort.each do |test_id|
@@ -153,7 +203,11 @@ module Sabaku
         end
         tests[test_id] = paths
       end
-      { "tests" => tests }
+      hash = { "tests" => tests }
+      unless @files.empty?
+        hash["files"] = @files.keys.sort.to_h { |path| [path, @files[path].to_h.transform_keys(&:to_s)] }
+      end
+      hash
     end
 
     def inspect

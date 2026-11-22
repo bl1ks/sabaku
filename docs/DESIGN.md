@@ -159,11 +159,20 @@ CoverageMap.empty
 CoverageMap#record(test_id, hits)         # hits: Hash[path => Array[Integer] | Set[Integer]]
 CoverageMap#tests_for(path, line)         -> Array[String] sorted
 CoverageMap#merge(other)                  -> CoverageMap
-CoverageMap#to_h / .from_h                # JSON round trip
+CoverageMap#to_h / .from_h                # JSON round trip, "files" only when described
+CoverageMap#describe(file) / #file(path) / #files
+CoverageMap#load_time_only?(path, line)   -> Boolean, the boot ran it and no test did
+CoverageMap::FileCoverage = Data.define(:path, :state, :boot_lines, :loaded_by)
+# state: :not_loaded | :uninstrumented | :loaded_during_test | :instrumented
 ```
 
 The coverage sampler owns per-test coverage collection; `CoverageMap` is a plain value that only
-answers "which tests execute this file and line".
+answers "which tests execute this file and line" and "how was this file loaded". The sampler
+describes every target once: `instrumented` with the lines the boot ran when it has counters in
+the snapshot right after boot, `uninstrumented` when Ruby loaded it but it has no live counters
+(its reload under Coverage raised, or it never appeared in the snapshot), `loaded_during_test`
+with the test that first required it, and `not_loaded` otherwise.
+`TestSelection#uncovered_reason` turns that into the uncovered reason.
 
 ```ruby
 # lib/sabaku/test_selection.rb
@@ -196,6 +205,7 @@ Result = Data.define(:mutant, :status, :duration, :failed_test, :message, :reaso
 # status: :killed | :survived | :timeout | :error | :uncovered | :skipped
 # reason: one of Result::REASONS[status], or nil when the result was not classified
 #   survived  :not_detected | :not_infected
+#   uncovered :not_loaded | :uninstrumented | :load_time_only | :not_reached
 #   timeout   :deadline
 #   error     :environment_crash | :unverified_kill | :harness
 #   skipped   :fail_fast | :mutation_unloadable | :suite_unloadable
@@ -265,7 +275,10 @@ reported separately and never enter the denominator.
 `CoverageSampler#call` owns both passes, in this order, in the parent:
 
 1. `Coverage.start` if it is not already running, then `Boot.require_paths`, `preload!`, and the
-   `after_boot` hook. Coverage must start before the project loads.
+   `after_boot` hook. Coverage must start before the project loads. A Coverage the project
+   started without `lines` raises `CoverageError`: no line could be attributed. A target loaded
+   before Coverage started is reloaded once; one whose reload raises is `uninstrumented` and the
+   rest are still sampled.
 2. Every test runs once, in process, and its newly-hit target lines are recorded in a
    `CoverageMap`. A red suite fails the run before any mutant is spent (unless `--no-baseline`).
 3. The weak pass reloads probe-instrumented copies of the target files over the originals, then
