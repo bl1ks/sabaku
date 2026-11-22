@@ -39,6 +39,11 @@ module Sabaku
       def call
         require "coverage"
         Boot.env(@config)
+        # Bootsnap's ISeq cache can serve a binary compiled without line counters.
+        # Recent Bootsnap skips the cache while Coverage is running; force a
+        # source compile anyway so an older Bootsnap or a race before Coverage
+        # starts cannot leave targets uninstrumented.
+        bypass_bootsnap_iseq!
 
         targets = target_files
         @wanted_lines = @mutants && wanted_lines
@@ -331,6 +336,21 @@ module Sabaku
         yield
       ensure
         $VERBOSE = previous
+      end
+
+      # `load_iseq` returning nil makes Ruby compile from source. Idempotent for
+      # the process: the sampler may be constructed more than once in tests.
+      def bypass_bootsnap_iseq!
+        ENV["DISABLE_BOOTSNAP_COMPILE_CACHE"] = "1"
+        return unless defined?(::RubyVM::InstructionSequence)
+
+        iseq = ::RubyVM::InstructionSequence.singleton_class
+        return if iseq.instance_variable_get(:@_sabaku_bootsnap_bypassed)
+        return unless iseq.method_defined?(:load_iseq)
+
+        iseq.alias_method(:_sabaku_load_iseq, :load_iseq) unless iseq.method_defined?(:_sabaku_load_iseq)
+        iseq.define_method(:load_iseq) { |_path| nil }
+        iseq.instance_variable_set(:@_sabaku_bootsnap_bypassed, true)
       end
 
       def diff_hits(before, after, targets)
