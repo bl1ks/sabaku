@@ -10,9 +10,9 @@ to eight; "What Quint checks" says what those bounds cover. Tool versions: Lean 
 
 | Question | Tool | Answer |
 | --- | --- | --- |
-| Does the algebra hold for every input? | Lean 4 | Proof. 138 theorems, no axioms, no `sorry`. |
+| Does the algebra hold for every input? | Lean 4 | Proof. 140 theorems, no axioms, no `sorry`. |
 | Can the pool or the kill-matrix sweep lose, double count, mis-order or rewrite a result on some schedule? | Quint + Apalache | No violation for every interleaving up to a step bound. |
-| Does the running code agree with the model? | Replay | Lean and Ruby independently compute 88 splices, 36 scores and 200 kill-matrix verdict sets; 0 mismatches. |
+| Does the running code agree with the model? | Replay | Lean and Ruby independently compute 88 splices, 36 scores and 200 kill-matrix verdict and tier sets; 0 mismatches. |
 
 Lean owns the pure part: offsets, operators, aridity, selection, score, cache, and the kill
 matrix's redundancy verdicts. Quint owns the concurrent part: the pool in `lib/sabaku/runner.rb`
@@ -74,6 +74,7 @@ Each row names the property in plain words and the code it mirrors.
 | KillMatrix | A test that is the only killer of some mutant is kept. | `Verdict#unique` |
 | KillMatrix | A mutant the test does not kill cannot change whether it is redundant or unique. | `KillMatrix.from` |
 | KillMatrix | Under a group map, the verdict is the suite verdict over the test's group, `by` is in that group, and dropping a group's redundant tests keeps every kill the group had. | `KillMatrix.group_of`, `dominators` |
+| KillMatrix | Only a redundant verdict carries a tier, and an artifact test kills nothing that a test of its group ran and survived. | `Verdict#tier`, `KillMatrix#broad?` |
 | KillMatrix | A killed row is the first failure followed by every failing test after it. | `sweep_tail`, `write_row` |
 
 ## What Quint checks

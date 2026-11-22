@@ -243,9 +243,17 @@ module Sabaku
         out << format("  %d incomplete (a sweep did not finish or a killer failed with no " \
                       "mutation); tests marked ? touch one\n", kill_matrix.incomplete.size)
       end
-      out << format("  tests %d: kept %d, subsumed %d, duplicate %d, zero kills %d, idle %d\n\n",
+      out << format("  tests %d: kept %d, subsumed %d, duplicate %d, zero kills %d, idle %d\n",
                     kill_matrix.verdicts.size, summary[:kept], summary[:subsumed],
                     summary[:duplicate], summary[:zero], summary[:idle])
+      redundant = kill_matrix.verdicts.select(&:redundant?)
+      unless redundant.empty?
+        out << format("  redundant %d actionable, %d provisional (?), %d broad-only " \
+                      "(every test of its class that ran those mutants killed them)\n",
+                      summary[:actionable], redundant.count { |verdict| verdict.tier == :provisional },
+                      summary[:artifact])
+      end
+      out << "\n"
       unused = kill_matrix.verdicts.select { |verdict| %i[zero idle].include?(verdict.kind) }
       out << matrix_list("zero kills", unused) do |verdict|
         if verdict.kind == :idle
@@ -256,7 +264,8 @@ module Sabaku
           "ran against #{plural(verdict.tested, "mutant")}, killed none"
         end
       end
-      out << matrix_list("redundant", kill_matrix.verdicts.select(&:redundant?)) do |verdict|
+      actionable = kill_matrix.verdicts.select { |verdict| verdict.tier == :actionable }
+      out << matrix_list("redundant", actionable) do |verdict|
         if verdict.kind == :duplicate
           "same #{plural(verdict.kills, "kill")} as #{verdict.by}"
         else

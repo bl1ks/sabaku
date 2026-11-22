@@ -202,6 +202,7 @@ class CampaignTest < Minitest::Test
                    "test_label_smoke" => ["zero", nil],
                    "test_sub_only" => ["kept", nil],
                    "test_untouched" => ["idle", nil] }, verdicts)
+    assert_equal "provisional", tests["test_add_twin"]["tier"]
     assert tests["test_add_wait"]["provisional"]
     refute tests["test_sub_only"]["provisional"]
     incomplete = on["kill_matrix"]["incomplete"]

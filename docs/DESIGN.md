@@ -223,9 +223,13 @@ Kills = Data.define(:tested, :killers)            # killers ⊆ tested, both sor
 KillMatrix.from(results, universe:, selected:, scope: :class)  # selected: {mutant id => test ids}
 KillMatrix.group_of(test_id) -> String              # "Klass#method" -> "Klass"
 KillMatrix#verdicts -> Array[Verdict]               # one per test, sorted by id
-Verdict = Data.define(:test, :kind, :kills, :unique, :tested, :by, :provisional, :group)
+Verdict = Data.define(:test, :kind, :kills, :unique, :tested, :by, :provisional, :group,
+                      :confidence)
 # kind: :kept | :subsumed | :duplicate | :zero | :idle
 # group: the test class under scope :class, "" under :suite. `by` is always in the same group.
+# confidence: :artifact when every row the test kills is broad for its group (at least two
+#   tests of the group ran it and all killed it), else :strong
+Verdict#tier -> :actionable | :provisional | :artifact | :none   # :none unless redundant
 ```
 
 Mutant lifecycle, the whole state machine:

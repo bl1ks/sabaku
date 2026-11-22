@@ -79,15 +79,23 @@ def kindName : KillMatrix.Kind → String
   | .zero => "zero"
   | .idle => "idle"
 
-/-- One `kind,by,unique` per test, in id order, as `KillMatrix#verdicts` lists them. `groups`
+def tierName : KillMatrix.Tier → String
+  | .actionable => "actionable"
+  | .provisional => "provisional"
+  | .artifact => "artifact"
+  | .none => "none"
+
+/-- One `kind,by,unique,tier` per test, in id order, as `KillMatrix#verdicts` lists them. `groups`
     gives each test's class; dominance holds only inside one. -/
 def matrixTable (n : Nat) (groups : List Nat) (rows : List (List Nat × List Nat))
     (inc : List (List Nat)) : String :=
   let K : Nat → Nat → Bool := fun t m => (rows.getD m ([], [])).2.contains t
+  let T : Nat → Nat → Bool := fun t m => (rows.getD m ([], [])).1.contains t
   let g : Nat → Nat := fun t => groups.getD t 0
   let ms := List.range rows.length
   let ts := List.range n
   let seen := fun t => rows.any (fun r => r.1.contains t) || inc.any (fun r => r.contains t)
+  let provisional := fun t => inc.any (fun r => r.contains t)
   String.intercalate ";" <| ts.map fun t =>
     let kind := KillMatrix.verdictG g K ms ts (seen t) t
     let named := match kind, KillMatrix.witnessG g K ms ts t with
@@ -95,7 +103,8 @@ def matrixTable (n : Nat) (groups : List Nat) (rows : List (List Nat × List Nat
       | .duplicate, some b => toString b
       | _, _ => "-"
     let uniq := (ms.filter (KillMatrix.unique K ts t)).length
-    s!"{kindName kind},{named},{uniq}"
+    let tier := KillMatrix.tier g K T ms ts (seen t) (provisional t) t
+    s!"{kindName kind},{named},{uniq},{tierName tier}"
 
 def checkMatrix (n groupsField rowsField incField want : String) : IO Bool := do
   match String.toNat? n, parseNats groupsField, (parseFields rowsField).mapM parseRow,

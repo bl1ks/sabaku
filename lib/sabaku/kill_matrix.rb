@@ -19,16 +19,35 @@ module Sabaku
   # Dominance holds only inside a group. Under scope :class the group is the test class, so a
   # unit test is never reported redundant because a request test happens to hit the same
   # mutants; under :suite every test shares one group.
+  #
+  # A row is broad for a group when every test of the group that ran it killed it (at least
+  # two did). A broad row cannot tell the group's tests apart: a constant table nobody mutates
+  # leaves only the lookup, and breaking the lookup fails every test. A test whose kills are
+  # all broad rows has confidence :artifact.
+  #
+  # tier sorts redundant verdicts by what a reader can do with them:
+  #   actionable   a real subset or duplicate, on complete rows
+  #   provisional  an incomplete row selected the test, so the verdict may still change
+  #   artifact     only broad rows say it is redundant
   class KillMatrix
     VERDICTS = %i[kept subsumed duplicate zero idle].freeze
     SCOPES = %i[class suite].freeze
+    TIERS = %i[actionable provisional artifact].freeze
 
-    Verdict = Data.define(:test, :kind, :kills, :unique, :tested, :by, :provisional, :group) do
+    Verdict = Data.define(:test, :kind, :kills, :unique, :tested, :by, :provisional, :group,
+                          :confidence) do
       def redundant? = %i[subsumed duplicate].include?(kind)
+
+      def tier
+        return :none unless redundant?
+        return :provisional if provisional
+
+        confidence == :artifact ? :artifact : :actionable
+      end
 
       def to_h
         { id: test, verdict: kind, kills: kills, unique: unique, tested: tested, by: by,
-          provisional: provisional, group: group }
+          provisional: provisional, group: group, confidence: confidence, tier: tier }
       end
     end
 
@@ -81,7 +100,9 @@ module Sabaku
 
     def summary
       counts = VERDICTS.to_h { |kind| [kind, verdicts.count { |verdict| verdict.kind == kind }] }
-      counts.merge(provisional: verdicts.count(&:provisional))
+      counts.merge(provisional: verdicts.count(&:provisional),
+                   actionable: verdicts.count { |verdict| verdict.tier == :actionable },
+                   artifact: verdicts.count { |verdict| verdict.tier == :artifact })
     end
 
     def to_h
@@ -101,6 +122,7 @@ module Sabaku
 
     # One bitmask per test over complete-row indices, so a subset check is `a & ~b == 0`.
     def tally(rows)
+      @row_list = rows
       @row_killers = rows.map(&:killers)
       @mask = Hash.new(0)
       @kills = Hash.new(0)
@@ -119,7 +141,21 @@ module Sabaku
     def verdict_for(test, provisional)
       kind, by = classify(test, provisional)
       Verdict.new(test: test, kind: kind, kills: @kills[test], unique: @unique[test],
-                  tested: @tested[test], by: by, provisional: provisional.key?(test), group: group(test))
+                  tested: @tested[test], by: by, provisional: provisional.key?(test), group: group(test),
+                  confidence: confidence(test))
+    end
+
+    def confidence(test)
+      mask = @mask[test]
+      return :strong if mask.zero?
+
+      killed = @row_list.each_index.select { |index| mask[index] == 1 }
+      killed.all? { |index| broad?(@row_list[index], group(test)) } ? :artifact : :strong
+    end
+
+    def broad?(row, group)
+      ran = row.tested.select { |test| group(test) == group }
+      ran.size >= 2 && ran.all? { |test| row.killers.include?(test) }
     end
 
     def group(test) = scope == :suite ? "" : self.class.group_of(test)

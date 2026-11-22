@@ -96,8 +96,8 @@ class KillMatrixTest < Minitest::Test
     m = matrix([killed("m1", %w[b a])], universe: %w[c])
 
     assert_equal %w[a b c], m.to_h[:tests].map { |test| test[:id] }
-    assert_equal({ kept: 1, subsumed: 0, duplicate: 1, zero: 0, idle: 1, provisional: 0 },
-                 m.to_h[:summary])
+    assert_equal({ kept: 1, subsumed: 0, duplicate: 1, zero: 0, idle: 1, provisional: 0,
+                   actionable: 0, artifact: 1 }, m.to_h[:summary])
   end
 
   def test_a_test_class_is_its_own_dominance_group
@@ -126,6 +126,43 @@ class KillMatrixTest < Minitest::Test
 
     assert_equal [:class, 3], m.to_h.values_at(:scope, :groups)
     assert_equal [:suite, 1], matrix([killed("m1", %w[A#test_x B#test_y])]).to_h.values_at(:scope, :groups)
+  end
+
+  # S: a lookup every test hits, so every S test kills m1 and that row tells them apart not at all.
+  # P: a real subset. Q: a subset whose test also sits on an incomplete row.
+  def test_redundant_verdicts_are_tiered
+    incomplete = Sabaku::Result.new(mutant: Mutant.new("m7"), status: :killed, failed_test: "Q#q")
+    m = Sabaku::KillMatrix.from(
+      [killed("m1", %w[S#a S#b S#c]),
+       killed("m3", %w[P#x P#y], tested: %w[P#x P#y P#z]),
+       killed("m4", %w[P#x], tested: %w[P#x P#y P#z]),
+       killed("m5", %w[Q#p Q#q], tested: %w[Q#p Q#q Q#r]),
+       killed("m6", %w[Q#p], tested: %w[Q#p Q#q Q#r]),
+       killed("m8", %w[L#solo]),
+       incomplete],
+      universe: [], selected: { "m7" => %w[Q#q] }
+    )
+
+    tiers = m.verdicts.to_h { |verdict| [verdict.test, [verdict.kind, verdict.tier]] }
+    assert_equal({ "L#solo" => %i[kept none], "P#x" => %i[kept none], "P#y" => %i[subsumed actionable],
+                   "P#z" => %i[zero none], "Q#p" => %i[kept none], "Q#q" => %i[subsumed provisional],
+                   "Q#r" => %i[zero none], "S#a" => %i[kept none], "S#b" => %i[duplicate artifact],
+                   "S#c" => %i[duplicate artifact] }, tiers)
+    assert_equal :artifact, m.verdict("S#a").confidence
+    assert_equal :strong, m.verdict("L#solo").confidence
+    assert_equal({ actionable: 1, artifact: 2 }, m.summary.slice(:actionable, :artifact))
+    assert_equal({ confidence: :artifact, tier: :artifact }, m.verdict("S#b").to_h.slice(:confidence, :tier))
+  end
+
+  def test_a_row_is_broad_only_inside_the_group_that_all_killed_it
+    m = Sabaku::KillMatrix.from(
+      [killed("m1", %w[A#x A#y B#u], tested: %w[A#x A#y B#u B#v]),
+       killed("m2", %w[B#u B#v])],
+      universe: []
+    )
+
+    assert_equal %i[duplicate artifact], [m.verdict("A#y").kind, m.verdict("A#y").tier]
+    assert_equal :strong, m.verdict("B#u").confidence
   end
 
   def test_an_unknown_scope_is_refused

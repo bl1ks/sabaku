@@ -197,8 +197,9 @@ class ReportTest < Minitest::Test
     assert_match(/C#smoke\s+ran against 1 mutant, killed none/, text)
     assert_match(/C#idle\s+never selected/, text)
     assert_match(/C#edge\s+\?\s+selected only for mutants without a complete row/, text)
-    assert_match(/C#twin\s+same 2 kills as C#strong/, text)
-    assert_match(/C#weak\s+\? 1 kill, all also killed by C#strong/, text)
+    assert_includes text, "redundant 1 actionable, 1 provisional (?), 0 broad-only"
+    assert_match(/redundant:\n\s+C#twin\s+same 2 kills as C#strong\n\n/, text)
+    refute_match(/C#weak\s+\?/, text)
     assert_match(/top unique killers:\n\s+C#strong\s+unique 0  kills 2/, text)
   end
 
@@ -211,9 +212,10 @@ class ReportTest < Minitest::Test
     assert_equal %w[C#edge C#idle C#smoke C#strong C#twin C#weak], matrix["tests"].map { |t| t["id"] }
     weak = matrix["tests"].find { |t| t["id"] == "C#weak" }
     assert_equal({ "id" => "C#weak", "verdict" => "subsumed", "kills" => 1, "unique" => 0,
-                   "tested" => 2, "by" => "C#strong", "provisional" => true, "group" => "C" }, weak)
+                   "tested" => 2, "by" => "C#strong", "provisional" => true, "group" => "C",
+                   "confidence" => "artifact", "tier" => "provisional" }, weak)
     assert_equal({ "kept" => 1, "subsumed" => 1, "duplicate" => 1, "zero" => 2, "idle" => 1,
-                   "provisional" => 2 }, matrix["summary"])
+                   "provisional" => 2, "actionable" => 1, "artifact" => 0 }, matrix["summary"])
     assert_equal %w[C#strong C#twin C#weak], payload["results"].first["kills"]["killers"]
     assert_nil payload["results"].last["kills"]
   end

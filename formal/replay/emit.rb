@@ -45,7 +45,8 @@ def matrix_records(count)
     rows = Array.new(random.rand(0..8)) do
       tested = tests.select { random.rand < 0.7 }
       tested = [tests.sample(random: random)] if tested.empty?
-      [tested, tested.select { random.rand < 0.4 }]
+      # Every test that ran it killed it: a broad row, the kind a lookup over a constant table makes.
+      [tested, random.rand < 0.3 ? tested : tested.select { random.rand < 0.4 }]
     end
     rows << rows.first if rows.any? && random.rand < 0.4
     incomplete = Array.new(random.rand(0..2)) { tests.select { random.rand < 0.5 } }.reject(&:empty?)
@@ -65,7 +66,7 @@ def matrix_records(count)
 
     index = ->(list) { list.map { |test| tests.index(test) }.join(",") }
     want = matrix.verdicts.map do |verdict|
-      [verdict.kind, verdict.by ? tests.index(verdict.by) : "-", verdict.unique].join(",")
+      [verdict.kind, verdict.by ? tests.index(verdict.by) : "-", verdict.unique, verdict.tier].join(",")
     end
     ["matrix", tests.size, groups.join(","),
      rows.map { |tested, killers| "#{index.(tested)}/#{index.(killers)}" }.join(";"),

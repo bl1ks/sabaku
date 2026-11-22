@@ -135,6 +135,15 @@ different questions, and deleting the unit test is not the advice. `--kill-matri
 compares every test with every other.
 
 Removing every `subsumed` and `duplicate` test keeps every kill, so the score would not move.
+The terminal lists only the redundant tests worth acting on. It counts two other kinds apart:
+
+| Tier | Meaning |
+| --- | --- |
+| actionable | listed: a real subset or duplicate over complete rows |
+| provisional | an incomplete row selected the test, so its verdict can still change (`?`) |
+| broad-only | every mutant it kills was killed by every test of its class that ran it; nothing tells those tests apart, often because a constant table is not mutated and only its lookup is |
+
+The JSON report gives each test its `group`, `confidence` (`strong` or `artifact`) and `tier`.
 The kept tests are a cover, not a minimum one. The terminal lists zero-kill tests, redundant
 tests and the tests with the most unique kills. The JSON report adds a `kill_matrix` section,
 with tests sorted by id, and a `kills` row on each result.

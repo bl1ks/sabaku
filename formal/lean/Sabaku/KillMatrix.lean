@@ -586,6 +586,54 @@ theorem keptG_preserves_killed {m : μ} (hm : m ∈ ms) (c : Nat) :
   rw [← kept_preserves_killed hm]
   simp [List.mem_filter, and_assoc]
 
+/-! ### Broad rows and tiers
+
+`T t m` says test `t` ran against `m` (`Kills#tested`). A row is broad for group `c` when at
+least two tests of `c` ran it and every one of them killed it. -/
+
+def broad (K T : Nat → μ → Bool) (ts : List Nat) (c : Nat) (m : μ) : Bool :=
+  let ran := ts.filter (fun t => decide (g t = c) && T t m)
+  ran.all (K · m) && decide (2 ≤ ran.length)
+
+/-- Every row `t` kills is broad for its group: `Verdict#confidence == :artifact`. -/
+def artifact (K T : Nat → μ → Bool) (ms : List μ) (ts : List Nat) (t : Nat) : Bool :=
+  decide (count K ms t ≠ 0) && ms.all (fun m => !K t m || broad g K T ts (g t) m)
+
+inductive Tier
+  | actionable
+  | provisional
+  | artifact
+  | none
+  deriving DecidableEq, Repr
+
+def tier (K T : Nat → μ → Bool) (ms : List μ) (ts : List Nat) (seen provisional : Bool)
+    (t : Nat) : Tier :=
+  match verdictG g K ms ts seen t with
+  | .subsumed | .duplicate =>
+    if provisional then .provisional
+    else if artifact g K T ms ts t then .artifact
+    else .actionable
+  | _ => .none
+
+/-- Only a redundant verdict carries a tier. -/
+theorem artifact_tier_only_redundant {K T : Nat → μ → Bool} {seen p : Bool} {t : Nat} :
+    tier g K T ms ts seen p t ≠ .none ↔
+      (verdictG g K ms ts seen t = .subsumed ∨ verdictG g K ms ts seen t = .duplicate) := by
+  unfold tier
+  cases verdictG g K ms ts seen t <;> simp <;> split <;> (try split) <;> simp
+
+/-- An artifact test kills nothing that some test of its group ran and survived. -/
+theorem artifact_kills_shared {K T : Nat → μ → Bool} {t : Nat} {m : μ}
+    (ha : artifact g K T ms ts t = true) (hm : m ∈ ms) (hk : K t m = true) :
+    ∀ t' ∈ ts, g t' = g t → T t' m = true → K t' m = true := by
+  intro t' ht' hg hT
+  simp only [artifact, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, Bool.or_eq_true,
+    Bool.not_eq_true'] at ha
+  rcases ha.2 m hm with h | h
+  · simp [hk] at h
+  · simp only [broad, Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq] at h
+    exact h.1 t' (List.mem_filter.mpr ⟨ht', by simp [hg, hT]⟩)
+
 end Grouped
 
 /-! ## First failure and the tail sweep -/
