@@ -32,7 +32,7 @@ class RunnerAttributionTest < Minitest::Test
       map.record(test_id, { path => map_lines })
       config = config_for(paths: ["lib"], isolation: :fork,
                           output: File.join(@tmpdir, "report.json"))
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
       Sabaku::Runner.new(config, analyzer: nil, adapter: adapter, coverage_map: map).call(mutants)
     end
   end
@@ -139,7 +139,7 @@ class RunnerAttributionTest < Minitest::Test
       setup.before_test_run { raise "harness blew up" }
       config = config_for(paths: ["lib"], isolation: :fork, setup: setup,
                           output: File.join(@tmpdir, "report.json"))
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
       result = Sabaku::Runner.new(config, analyzer: nil, adapter: adapter,
                                     coverage_map: map).call(mutants).first
 

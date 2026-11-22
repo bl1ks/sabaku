@@ -11,7 +11,7 @@ class CoverageSamplerTest < Minitest::Test
   def test_shipping_test_covers_shipping_lines_and_not_unrelated_ones
     in_project("minitest_calc") do
       source = Sabaku::Source.new("lib/pricing.rb", File.read("lib/pricing.rb"))
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
       map = Sabaku::Adapters::CoverageSampler.new(config_for, adapter, [source]).call
 
       # Both tests that call Pricing#shipping must be recorded on the lines of
@@ -44,10 +44,10 @@ class CoverageSamplerTest < Minitest::Test
       mutants = Sabaku::Analyzer.new([source], config).mutants
 
       full = Sabaku::Adapters::CoverageSampler.new(
-        config, Sabaku::Adapters::MinitestAdapter.new, [source]
+        config, minitest_adapter, [source]
       ).call
       scoped = Sabaku::Adapters::CoverageSampler.new(
-        config, Sabaku::Adapters::MinitestAdapter.new, [source], mutants: mutants
+        config, minitest_adapter, [source], mutants: mutants
       ).call
 
       mutants.each do |mutant|
@@ -66,7 +66,7 @@ class CoverageSamplerTest < Minitest::Test
       config = config_for
       mutants = Sabaku::Analyzer.new([source], config).mutants
       sampler = Sabaku::Adapters::CoverageSampler.new(
-        config, Sabaku::Adapters::MinitestAdapter.new, [source], mutants: mutants
+        config, minitest_adapter, [source], mutants: mutants
       )
       map = sampler.call
       weak = sampler.weak_report
@@ -108,7 +108,7 @@ class CoverageSamplerTest < Minitest::Test
           super
         end
       end
-      adapter = adapter_class.new
+      adapter = adapter_class.new(test_globs: ["test/*_case.rb"])
       sampler = Sabaku::Adapters::CoverageSampler.new(
         config, adapter, [source], mutants: mutants
       )
@@ -160,7 +160,7 @@ class CoverageSamplerTest < Minitest::Test
 
       source = Sabaku::Source.new("lib/pricing.rb", File.read("lib/pricing.rb"))
       config = config_for
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
       map = Sabaku::Adapters::CoverageSampler.new(config, adapter, [source]).call
 
       assert_includes map.tests_for("lib/pricing.rb", 39), SHIPPING_TEST
@@ -171,7 +171,7 @@ class CoverageSamplerTest < Minitest::Test
     in_project("failing_minitest", glob: "test/*_case.rb") do
       source = Sabaku::Source.new("lib/thing.rb", File.read("lib/thing.rb"))
       config = config_for
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
 
       error = assert_raises(Sabaku::BaselineError) do
         Sabaku::Adapters::CoverageSampler.new(config, adapter, [source]).call
@@ -187,7 +187,7 @@ class CoverageSamplerTest < Minitest::Test
     in_project("failing_minitest", glob: "test/*_case.rb") do
       source = Sabaku::Source.new("lib/thing.rb", File.read("lib/thing.rb"))
       config = config_for(baseline: false)
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
 
       map = Sabaku::Adapters::CoverageSampler.new(config, adapter, [source]).call
 

@@ -28,7 +28,8 @@ For the fast loop, run one file:
 ./bin/rt ruby -Ilib -Itest test/e2e/campaign_test.rb
 ```
 
-Two environment variables matter. `SABAKU_TEST_GLOB` overrides test discovery.
+Two environment variables matter. `SABAKU_TEST_GLOB` overrides test discovery; the CLI reads it
+into `Config#test_globs`, and the adapter only takes `test_globs:`.
 `SABAKU_NO_CACHE=1` ignores the result cache, and a test that measures a campaign sets it,
 because a warm cache hides a runner regression.
 

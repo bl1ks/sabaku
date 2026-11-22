@@ -103,11 +103,12 @@ tier has no test at all: the suite only exercises the ten-item tier.
 | `--output=PATH` | none | write the JSON report |
 | `--min-score=PCT` | none | exit 1 when the reported score is below this |
 | `--exclude=GLOB` | none | skip files |
+| `--tests=GLOB` | `test/**/*_test.rb` | test files to load (repeatable) |
 | `--limit=N` | none | cap the mutant count |
 
 Run it from the project root. `lib` and `test` are put on `$LOAD_PATH`, and test files
-are discovered with `test/**/*_test.rb`. Set `SABAKU_TEST_GLOB`
-to override the pattern. Set `SABAKU_NO_CACHE=1` to ignore the result cache.
+are discovered with `test/**/*_test.rb`. `--tests=GLOB` replaces the pattern, and
+`SABAKU_TEST_GLOB` sets one when the flag is absent. Set `SABAKU_NO_CACHE=1` to ignore the result cache.
 
 ### Kill matrix
 

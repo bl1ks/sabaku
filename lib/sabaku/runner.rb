@@ -576,6 +576,7 @@ module Sabaku
         "SABAKU_ENV" => JSON.generate(@config.env),
         "SABAKU_REQUIRES" => JSON.generate(@config.requires),
         "SABAKU_SETUP" => @config.setup_path.to_s,
+        "SABAKU_TEST_GLOBS" => JSON.generate(@adapter.test_globs),
         "SABAKU_NEUTRAL" => neutral ? "1" : "0",
         "SABAKU_SWEEP" => sweep ? "1" : "0"
       }

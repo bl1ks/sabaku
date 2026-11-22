@@ -9,7 +9,7 @@ module Sabaku
     #
     # Contract:
     #
-    #   MinitestAdapter.new -> adapter
+    #   MinitestAdapter.new(test_globs: []) -> adapter; [] means MINITEST_GLOB
     #   adapter.preload!    -> loads the framework + project tests once
     #   adapter.test_ids    -> Array[String], stable native ids
     #   adapter.run(ids)    -> Outcome(ok:, failed_id:, error:)
@@ -57,12 +57,13 @@ module Sabaku
 
       MINITEST_GLOB = "test/**/*_test.rb"
 
-      attr_reader :root
+      attr_reader :root, :test_globs
 
-      def initialize
+      def initialize(test_globs: [])
         # The project root is the current working directory; the adapter never
         # assumes the library checkout is the project.
         @root = Dir.pwd
+        @test_globs = test_globs.empty? ? [MINITEST_GLOB] : test_globs.map(&:to_s)
         @preloaded = false
       end
 
@@ -77,7 +78,7 @@ module Sabaku
         @test_files = test_files
         if @test_files.empty?
           raise Sabaku::Error,
-                "no minitest files matched #{MINITEST_GLOB.inspect} under #{@root}"
+                "no minitest files matched #{@test_globs.join(", ")} under #{@root}"
         end
 
         @registry_before = ::Minitest::Runnable.runnables.dup
@@ -139,7 +140,7 @@ module Sabaku
       # runner fingerprints them for the result cache, so a test that changed
       # invalidates the verdicts it produced.
       def test_files
-        @test_files ||= discover_test_files(MINITEST_GLOB)
+        @test_files ||= discover_test_files
       end
 
       def inspect
@@ -161,11 +162,9 @@ module Sabaku
         end
       end
 
-      # ENV["SABAKU_TEST_GLOB"] overrides the framework default.
-      def discover_test_files(default_glob)
-        pattern = ENV["SABAKU_TEST_GLOB"]
-        pattern = default_glob if pattern.nil? || pattern.empty?
-        Dir.glob(File.expand_path(pattern, root)).select { |file| File.file?(file) }.sort
+      def discover_test_files
+        @test_globs.flat_map { |pattern| Dir.glob(File.expand_path(pattern, root)) }
+                   .select { |file| File.file?(file) }.uniq.sort
       end
 
       def repo_relative(path)

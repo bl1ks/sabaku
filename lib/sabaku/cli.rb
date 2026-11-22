@@ -69,7 +69,7 @@ module Sabaku
         return EXIT_OK
       end
 
-      adapter = start_adapter
+      adapter = start_adapter(cfg)
       coverage = collect_coverage(cfg, adapter, sources, mutants)
       if coverage.nil?
         # Selection failed. Running every test for every mutant is slow but correct;
@@ -214,6 +214,9 @@ module Sabaku
           options[:min_score] = v
         end
         o.on("--exclude=GLOB", "skip files") { |v| (options[:exclude] ||= []) << v }
+        o.on("--tests=GLOB", "test files to load (repeatable, default test/**/*_test.rb)") do |v|
+          (options[:tests] ||= []) << v
+        end
         o.on("--limit=N", Integer, "cap the number of mutants") { |v| options[:limit] = v }
         o.on("-h", "--help", "this") do
           @out.puts(o.to_s)
@@ -240,9 +243,10 @@ module Sabaku
         changed = Diff.git_ranges(revision)
         overrides[:diff_ranges] = Diff.intersect(overrides[:diff_ranges], changed)
       end
+      overrides[:test_globs] = overrides.delete(:tests) || [ENV.fetch("SABAKU_TEST_GLOB", "")].reject(&:empty?)
       keys = %i[paths exclude operators jobs timeout per_line diff_ranges
                 coverage isolation report output env requires setup setup_path fail_fast baseline weak
-                kill_matrix]
+                kill_matrix test_globs]
       Config.default(**overrides.slice(*keys))
     end
 
@@ -265,8 +269,8 @@ module Sabaku
       file.sub(%r{\A#{Regexp.escape(Dir.pwd)}/}, "")
     end
 
-    def start_adapter
-      Adapters::MinitestAdapter.new
+    def start_adapter(cfg)
+      Adapters::MinitestAdapter.new(test_globs: cfg.test_globs)
     rescue LoadError => e
       raise Sabaku::Error,
             "the minitest adapter cannot be loaded (#{e.message}). " \
@@ -332,6 +336,7 @@ module Sabaku
           --env=KEY=VALUE            ENV set before the suite loads (repeatable)
           --require=PATH             require after coverage starts, before the tests
           --setup=PATH               Ruby file with boot hooks for Rails and friends
+          --tests=GLOB               test files to load (repeatable; SABAKU_TEST_GLOB sets one)
           --isolation=fork|process   fork from a preloaded suite, or a fresh process
           --report=terminal|json     output format
           --output=PATH              write the JSON report

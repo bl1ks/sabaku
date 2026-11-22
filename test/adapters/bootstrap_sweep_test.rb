@@ -21,7 +21,7 @@ class BootstrapSweepTest < Minitest::Test
         "SABAKU_MUTANT_PATH" => "lib/matrix_calc.rb",
         "SABAKU_MUTATED_FILE" => mutated,
         "SABAKU_PAYLOAD_FD" => "3",
-        "SABAKU_TEST_GLOB" => "test/*_case.rb",
+        "SABAKU_TEST_GLOBS" => JSON.generate(["test/*_case.rb"]),
         "SABAKU_SWEEP" => sweep ? "1" : "0"
       }
       pid = Process.spawn(env, RbConfig.ruby, "-I", Sabaku::Runner::SABAKU_LIB,

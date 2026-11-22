@@ -8,7 +8,7 @@ class MinitestAdapterTest < Minitest::Test
 
   def test_preload_fixture_and_run_subsets
     in_project("minitest_calc") do
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
 
       adapter.preload!
 
@@ -26,7 +26,7 @@ class MinitestAdapterTest < Minitest::Test
 
   def test_failing_test_returns_failed_outcome_without_raising
     in_project("failing_minitest", glob: "test/*_case.rb") do
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
       adapter.preload!
 
       ids = adapter.test_ids
@@ -47,7 +47,7 @@ class MinitestAdapterTest < Minitest::Test
 
   def test_unknown_id_is_an_error_outcome_not_an_exception
     in_project("minitest_calc") do
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
       adapter.preload!
 
       outcome = adapter.run(["Nope#test_missing"])
@@ -59,7 +59,7 @@ class MinitestAdapterTest < Minitest::Test
 
   def with_matrix_add(body)
     in_project("matrix_minitest", glob: "test/*_case.rb") do
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
       adapter.preload!
       original = MatrixCalc.method(:add)
       MatrixCalc.define_singleton_method(:add, &body)
@@ -92,7 +92,7 @@ class MinitestAdapterTest < Minitest::Test
 
   def test_sweep_counts_a_run_override_that_returns_garbage_as_failed
     in_project("odd_run_minitest", glob: "test/*_case.rb") do
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
       adapter.preload!
       original = Odd.method(:value)
       Odd.define_singleton_method(:value) { 0 }
@@ -106,11 +106,20 @@ class MinitestAdapterTest < Minitest::Test
 
   def test_custom_test_glob
     in_project("minitest_calc") do
-      ENV["SABAKU_TEST_GLOB"] = "test/*_test.rb"
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = Sabaku::Adapters::MinitestAdapter.new(test_globs: ["test/*_test.rb"])
       adapter.preload!
 
       assert_equal 6, adapter.test_ids.size
+    end
+  end
+
+  def test_the_adapter_reads_its_globs_from_the_caller_not_the_environment
+    in_project("minitest_calc") do
+      ENV["SABAKU_TEST_GLOB"] = "test/nothing_matches_*.rb"
+      adapter = minitest_adapter
+
+      assert_equal [Sabaku::Adapters::MinitestAdapter::MINITEST_GLOB], adapter.test_globs
+      refute_empty adapter.test_files
     ensure
       ENV.delete("SABAKU_TEST_GLOB")
     end
@@ -124,7 +133,7 @@ class MinitestAdapterTest < Minitest::Test
     end
 
     in_project("minitest_calc") do
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
       adapter.preload!
       assert_equal 6, adapter.test_ids.size
       assert_raises(ArgumentError) { shadow.name }
@@ -140,7 +149,7 @@ class MinitestAdapterTest < Minitest::Test
     Minitest.send(:remove_const, :Spec)
 
     in_project("no_spec_minitest", glob: "test/*_case.rb") do
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
       adapter.preload!
       assert_equal ["HiddenCaseTest#test_value"], adapter.test_ids
     end

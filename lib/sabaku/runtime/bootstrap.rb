@@ -13,6 +13,7 @@
 #   SABAKU_MUTANT_PATH  repo-relative path of the mutated file
 #   SABAKU_MUTATED_FILE absolute path of the mutated temporary file
 #   SABAKU_PAYLOAD_FD   fd number of the completion pipe (3)
+#   SABAKU_TEST_GLOBS   JSON array of the parent adapter's test globs
 #   SABAKU_NEUTRAL      "1" boots the project with no mutation applied
 #                              (the baseline check in process isolation)
 #   SABAKU_SWEEP        "1" runs every id and reports each one that failed
@@ -52,7 +53,9 @@ module Sabaku
           test_ids = JSON.parse(ENV.fetch("SABAKU_TEST_IDS", "[]"))
 
           require "sabaku/adapters/minitest"
-          @adapter = Sabaku::Adapters::MinitestAdapter.new
+          @adapter = Sabaku::Adapters::MinitestAdapter.new(
+            test_globs: JSON.parse(ENV.fetch("SABAKU_TEST_GLOBS", "[]"))
+          )
           prepare_load_path(root)
           install_loader(target_path, mutated_file, root) unless neutral?
           @setup = load_setup

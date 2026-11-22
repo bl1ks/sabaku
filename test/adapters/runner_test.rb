@@ -50,7 +50,7 @@ class RunnerTest < Minitest::Test
       mutants ||= build_tiny_mutants(root)
       config = tiny_config(isolation: isolation, jobs: jobs, timeout: timeout,
                            coverage: coverage)
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
       Sabaku::Runner.new(config, analyzer: nil, adapter: adapter, coverage_map: map).call(mutants)
     end
   end
@@ -101,7 +101,7 @@ class RunnerTest < Minitest::Test
       map = Sabaku::CoverageMap.empty
       map.record("LoopTest#test_spin", { "lib/loop.rb" => [4, 5, 6, 7] })
       config = tiny_config(isolation: :fork, timeout: 0.3)
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
 
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       results = Sabaku::Runner.new(config, analyzer: nil, adapter: adapter,
@@ -128,7 +128,7 @@ class RunnerTest < Minitest::Test
       mutants = build_tiny_mutants(root).first(2)
       config = tiny_config(isolation: :fork)
       map = tiny_coverage_map
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
 
       first = Sabaku::Runner.new(config, analyzer: nil, adapter: adapter,
                                            coverage_map: map).call(mutants)
@@ -151,7 +151,7 @@ class RunnerTest < Minitest::Test
       mutants = build_tiny_mutants(root).first(2)
       config = tiny_config(isolation: :fork)
       map = tiny_coverage_map
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
 
       ENV["SABAKU_NO_CACHE"] = "1"
       begin
@@ -176,7 +176,7 @@ class RunnerTest < Minitest::Test
                               replacement: '"other"', operator: :str,
                               node_kind: "StringNode")
       config = tiny_config(fail_fast: true, jobs: 1)
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
       results = Sabaku::Runner.new(config, analyzer: nil, adapter: adapter,
                                      coverage_map: tiny_coverage_map).call(mutants)
 
@@ -201,7 +201,7 @@ class RunnerTest < Minitest::Test
     in_project("tiny_minitest", glob: "test/*_case.rb") do
       config = tiny_config(setup: Sabaku.setup(setup_path), setup_path: setup_path,
                            env: { "SABAKU_HOOK_TEST" => "on" })
-      adapter = Sabaku::Adapters::MinitestAdapter.new
+      adapter = minitest_adapter
       Sabaku::Runner.new(config, analyzer: nil, adapter: adapter,
                            coverage_map: tiny_coverage_map).call(build_tiny_mutants(Dir.pwd))
     end

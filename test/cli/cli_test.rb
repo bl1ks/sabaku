@@ -105,6 +105,46 @@ class CLITest < Minitest::Test
     end
   end
 
+  def glob_project
+    File.write("lib/glob_subject.rb", "class GlobSubject\n  def add(a, b)\n    a + b\n  end\nend\n")
+    FileUtils.mkdir_p("test")
+    File.write("test/glob_subject_case.rb", <<~RUBY)
+      require "minitest/autorun"
+      require "glob_subject"
+
+      class GlobSubjectCase < Minitest::Test
+        def test_add
+          assert_equal 5, GlobSubject.new.add(2, 3)
+        end
+      end
+    RUBY
+  end
+
+  def test_tests_flag_chooses_the_test_files
+    in_project do
+      glob_project
+
+      code, out, err = start(["run", "lib/glob_subject.rb", "--tests=test/*_case.rb", "--report=json"])
+
+      assert_equal 0, code, err
+      assert_operator JSON.parse(out.lines.last)["killed"], :>, 0
+    end
+  end
+
+  def test_the_test_glob_environment_variable_is_read_by_the_cli
+    in_project do
+      glob_project
+      ENV["SABAKU_TEST_GLOB"] = "test/*_case.rb"
+
+      cfg = Sabaku::CLI.new([]).send(:build_config, {})
+
+      assert_equal ["test/*_case.rb"], cfg.test_globs
+      assert_equal ["test/x_case.rb"], Sabaku::CLI.new([]).send(:build_config, { tests: ["test/x_case.rb"] }).test_globs
+    ensure
+      ENV.delete("SABAKU_TEST_GLOB")
+    end
+  end
+
   def test_fail_fast_reports_the_rest_as_skipped
     in_project do
       File.write("lib/subject.rb", <<~RUBY)

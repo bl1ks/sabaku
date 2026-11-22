@@ -14,8 +14,8 @@ class RunnerKillMatrixTest < Minitest::Test
 
   # Writes the ids of every sweep to a file, because a fork child's memory dies with it.
   class RecordingAdapter < Sabaku::Adapters::MinitestAdapter
-    def initialize(log)
-      super()
+    def initialize(log, test_globs:)
+      super(test_globs: test_globs)
       @log = log
     end
 
@@ -68,7 +68,7 @@ class RunnerKillMatrixTest < Minitest::Test
       mutants = mutants.slice(*only) if only
       config = config_for(isolation: isolation, timeout: 2.0, kill_matrix: kill_matrix,
                           output: File.join(@tmpdir, "report.json"))
-      adapter = record ? RecordingAdapter.new(@log) : Sabaku::Adapters::MinitestAdapter.new
+      adapter = record ? RecordingAdapter.new(@log, test_globs: @test_globs) : minitest_adapter
       runner = Sabaku::Runner.new(config, analyzer: nil, adapter: adapter,
                                           coverage_map: matrix_map,
                                           weak: weak ? WeakLabel.new(mutants[:label].id) : nil)
@@ -186,7 +186,7 @@ class RunnerKillMatrixTest < Minitest::Test
           map.record(id, { "lib/load_counter.rb" => [12, 13, 14] })
         end
         config = config_for(kill_matrix: true, output: File.join(@tmpdir, "report.json"))
-        Sabaku::Runner.new(config, adapter: Sabaku::Adapters::MinitestAdapter.new,
+        Sabaku::Runner.new(config, adapter: minitest_adapter,
                                    coverage_map: map).call([mutant]).first
       end
 

@@ -51,7 +51,9 @@ Config = Data.define(
   :setup_path,   # String | nil, the file the setup came from (process isolation)
   :fail_fast,    # Boolean, stop at the first survivor
   :baseline,     # Boolean, refuse to score a suite that is not green and re-check kills
-  :weak          # Boolean, run the dry-run probe pass
+  :weak,         # Boolean, run the dry-run probe pass
+  :kill_matrix,  # Boolean, sweep every killed mutant's selection
+  :test_globs    # Array[String], test files to load; [] means test/**/*_test.rb
 )
 Config.default(**overrides) -> Config
 
@@ -175,7 +177,7 @@ test the runner picks but the probe pass skipped would turn a decided mutant int
 
 ```ruby
 # lib/sabaku/adapters/minitest.rb
-MinitestAdapter.new     -> adapter
+MinitestAdapter.new(test_globs: []) -> adapter   # the CLI passes Config#test_globs
 adapter.preload!        -> void          # loads the project's tests into this process
 adapter.test_ids        -> Array[String] # stable ids, minitest native
 adapter.run(ids)        -> Outcome       # runs those ids only, in this process

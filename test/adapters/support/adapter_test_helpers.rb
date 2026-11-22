@@ -18,19 +18,20 @@ module AdapterTestHelpers
   # Adapting to the seam: the project root is Dir.pwd, so tests chdir into the
   # fixture and restore the original directory no matter what. Inline fixtures
   # deliberately name their test files `*_case.rb` so the suite's own
-  # `test/adapters/**/*_test.rb` glob never tries to require them; the adapter
-  # is pointed at them with the custom-glob env var.
+  # `test/adapters/**/*_test.rb` glob never tries to require them;
+  # `minitest_adapter` points the adapter at them.
   def in_project(name, glob: nil)
     directory = fixture_dir(name)
     previous = Dir.pwd
-    previous_glob = ENV["SABAKU_TEST_GLOB"]
-    ENV["SABAKU_TEST_GLOB"] = glob if glob
+    @test_globs = Array(glob)
     Dir.chdir(directory)
     yield directory
   ensure
-    ENV["SABAKU_TEST_GLOB"] = previous_glob if defined?(previous_glob) && previous_glob
-    ENV.delete("SABAKU_TEST_GLOB") if defined?(previous_glob) && previous_glob.nil?
     Dir.chdir(previous) if defined?(previous) && previous
+  end
+
+  def minitest_adapter
+    Sabaku::Adapters::MinitestAdapter.new(test_globs: @test_globs || [])
   end
 
   def config_for(overrides = {})
