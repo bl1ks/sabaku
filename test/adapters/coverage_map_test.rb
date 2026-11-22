@@ -32,6 +32,18 @@ class CoverageMapTest < Minitest::Test
     assert_equal [1, 3], map.file("lib/a.rb").boot_lines
   end
 
+  def test_tests_for_file_orders_every_test_that_reached_the_file_by_reach
+    map = Sabaku::CoverageMap.empty
+    map.record("A#test_b", { "lib/a.rb" => [3] })
+    map.record("A#test_a", { "lib/a.rb" => [4] })
+    map.record("A#test_c", { "lib/a.rb" => [3, 4, 5] })
+    map.record("A#test_d", { "lib/other.rb" => [1] })
+
+    assert_equal %w[A#test_a A#test_b A#test_c], map.tests_for_file("lib/a.rb")
+    assert_equal %w[A#test_c A#test_a A#test_b], map.ordered_tests_for_file("lib/a.rb")
+    assert_empty map.tests_for_file("lib/none.rb")
+  end
+
   def test_file_states_survive_the_json_round_trip
     map = Sabaku::CoverageMap.empty
     map.describe(file_coverage("lib/a.rb", :loaded_during_test, loaded_by: "A#test_a"))

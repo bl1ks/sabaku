@@ -2,6 +2,7 @@
 
 class Ticket < ApplicationRecord
   belongs_to :account
+  validates :subject, length: { maximum: 40 }
 
   scope :open, -> { where(status: "open") }
 

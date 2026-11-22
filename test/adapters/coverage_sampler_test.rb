@@ -167,6 +167,18 @@ class CoverageSamplerTest < Minitest::Test
     end
   end
 
+  ATTRIBUTION_CONSTANTS = %i[Contract Eager Lazy Never Preloaded].freeze
+
+  # These tests ask how a file first loaded, and the sampler runs the suite in this
+  # process, so each one starts with none of the fixture loaded.
+  def in_attribution_project(&)
+    features = $LOADED_FEATURES.dup
+    in_project("attribution_minitest", glob: "test/*_case.rb", &)
+  ensure
+    $LOADED_FEATURES.replace(features)
+    ATTRIBUTION_CONSTANTS.each { |name| Object.send(:remove_const, name) if Object.const_defined?(name, false) }
+  end
+
   def attribution_sources(*names)
     names.map { |name| Sabaku::Source.new("lib/#{name}.rb", File.read("lib/#{name}.rb")) }
   end
@@ -174,7 +186,7 @@ class CoverageSamplerTest < Minitest::Test
   # Five reasons leave a line without a test, and the sampler is the one place that
   # can tell them apart: it holds the snapshot right after boot and every test's delta.
   def test_the_sampler_records_how_each_target_file_was_loaded
-    in_project("attribution_minitest", glob: "test/*_case.rb") do
+    in_attribution_project do
       map = Sabaku::Adapters::CoverageSampler.new(
         config_for, minitest_adapter, attribution_sources("eager", "lazy", "never")
       ).call
@@ -190,10 +202,41 @@ class CoverageSamplerTest < Minitest::Test
     end
   end
 
+  # A block the class body runs at load time has no per-test owner, but a test that
+  # reached the file can still see the value it built.
+  def test_a_load_time_only_line_selects_the_tests_that_reached_its_file
+    in_attribution_project do
+      sources = attribution_sources("contract", "eager")
+      map = Sabaku::Adapters::CoverageSampler.new(config_for, minitest_adapter, sources).call
+      selection = Sabaku::TestSelection.new(map)
+      mutants = Sabaku::Analyzer.new(sources, config_for).mutants
+
+      in_block = mutants.find { |mutant| mutant.path == "lib/contract.rb" && mutant.line == 14 }
+      refute_nil in_block, "the fixture has a mutant inside the params block"
+      assert map.load_time_only?("lib/contract.rb", 14)
+      assert_equal ["AttributionTest#test_contract"], selection.tests_for(in_block, sources[0])
+
+      rule = mutants.find { |mutant| mutant.path == "lib/eager.rb" && mutant.line == 12 }
+      refute_nil rule
+      assert_equal ["AttributionTest#test_check"], selection.tests_for(rule, sources[1])
+    end
+  end
+
+  def test_a_load_time_only_line_in_a_file_no_test_reached_is_uncovered_load_time_only
+    map = Sabaku::CoverageMap.new
+    map.describe(Sabaku::CoverageMap::FileCoverage.new(path: "lib/a.rb", state: :instrumented, boot_lines: [1]))
+    source = Sabaku::Source.new("lib/a.rb", "rule(1 + 2)\n")
+    mutant = Sabaku::Analyzer.new([source], config_for).mutants.first
+    selection = Sabaku::TestSelection.new(map)
+
+    assert_empty selection.tests_for(mutant, source)
+    assert_equal :load_time_only, selection.uncovered_reason(mutant, source)
+  end
+
   # A file loaded before Coverage.start that refuses a second load has no counters.
   # One such file must not stop sampling the others.
   def test_a_preloaded_file_that_cannot_reload_is_uninstrumented_and_the_rest_is_sampled
-    in_project("attribution_minitest", glob: "test/*_case.rb") do
+    in_attribution_project do
       require File.expand_path("lib/preloaded.rb")
 
       map = Sabaku::Adapters::CoverageSampler.new(
@@ -208,7 +251,7 @@ class CoverageSamplerTest < Minitest::Test
   # SimpleCov's oneshot mode leaves no `lines` counters. Sampling it would call every
   # file uninstrumented, so the sampler stops and names the cause.
   def test_coverage_started_without_line_counters_stops_the_sampler
-    in_project("attribution_minitest", glob: "test/*_case.rb") do
+    in_attribution_project do
       require "coverage"
       ::Coverage.start(oneshot_lines: true)
       error = assert_raises(Sabaku::CoverageError) do

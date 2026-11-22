@@ -162,6 +162,7 @@ CoverageMap#merge(other)                  -> CoverageMap
 CoverageMap#to_h / .from_h                # JSON round trip, "files" only when described
 CoverageMap#describe(file) / #file(path) / #files
 CoverageMap#load_time_only?(path, line)   -> Boolean, the boot ran it and no test did
+CoverageMap#tests_for_file(path)          -> Array[String] sorted, every test that hit any line of path
 CoverageMap::FileCoverage = Data.define(:path, :state, :boot_lines, :loaded_by)
 # state: :not_loaded | :uninstrumented | :loaded_during_test | :instrumented
 ```
@@ -287,11 +288,19 @@ reported separately and never enter the denominator.
    (a file whose reload raises, a mutant without pure operands) simply leaves its mutant
    `:unknown`, which runs normally.
 
-One line kind has no per-test owner. Ruby marks an endless method's line (`def m = expr`) when the
-class body runs and never increments it on a call, so the delta after a test is zero even though
-every call executed it. `TestSelection#unattributable?` recognises that line, and the runner runs
-every test for mutants on it. Naming it `:uncovered` would be cheaper and would drop real mutants
-from the score, which is the one lie this engine cannot tell.
+Two line kinds have no per-test owner. Naming either `:uncovered` would be cheaper and would drop
+real mutants from the score, which is the one lie this engine cannot tell.
+
+- A line only the boot ran: a class-body DSL call, a schema block the class body yields to.
+  `TestSelection#tests_for` falls back from the span and the statement span to every test that
+  reached the file, ordered by reach then id. The child re-evaluates the file, so the mutated DSL
+  call runs again and those tests see what it built. With no such test the mutant is `:uncovered`
+  with `:load_time_only`.
+- An endless method's line (`def m = expr`). Ruby marks it when the class body runs and never
+  increments it on a call, so the delta after a test is zero even though every call executed it.
+  `TestSelection#unattributable?` recognises that line from the AST, and the runner runs every
+  test for mutants on it. The measured load-time-only fallback is not enough here: under a lazy
+  autoload the `def` line is attributed to the one test that loaded the file.
 
 The passes are separate because code compiled by `eval` is not instrumented: doing both at once
 would erase the probed files' line counts. The price is one extra run of the tests that can reach

@@ -19,17 +19,24 @@ module Sabaku
 
     # -> Array[String], ordered by reach then id. Empty when no test covers it.
     def tests_for(mutant, source)
-      tests = @coverage_map.ordered_tests_for_span(mutant.path, mutant.line,
-                                                   source.line_of(mutant.end_offset - 1))
+      last_line = source.line_of(mutant.end_offset - 1)
+      tests = @coverage_map.ordered_tests_for_span(mutant.path, mutant.line, last_line)
       return tests unless tests.empty?
 
       # Ruby's line coverage is coarse inside one expression: a five-line
       # `a && b && c` chain reports its first and last line only.
       span = statement_spans(source)[[mutant.start_offset, mutant.end_offset]]
-      return [] if span.nil?
+      unless span.nil?
+        tests = @coverage_map.ordered_tests_for_span(mutant.path, source.line_of(span[0]),
+                                                     source.line_of(span[1] - 1))
+        return tests unless tests.empty?
+      end
 
-      @coverage_map.ordered_tests_for_span(mutant.path, source.line_of(span[0]),
-                                           source.line_of(span[1] - 1))
+      # A line only the boot ran (a class body DSL, a schema block) is owned by no single
+      # test; a test that reached the file is the one that can observe what it built.
+      return [] unless (mutant.line..last_line).any? { |line| @coverage_map.load_time_only?(mutant.path, line) }
+
+      @coverage_map.ordered_tests_for_file(mutant.path)
     end
 
     # True when a mutant's line exists but Ruby's line counters cannot attribute it to any

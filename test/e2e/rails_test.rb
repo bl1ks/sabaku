@@ -53,6 +53,13 @@ class RailsCampaignTest < Minitest::Test
       assert_operator ticket_kills, :>, 0,
                       "the transactional-fixture test should kill a Ticket mutation"
 
+      validation = payload["results"].select do |result|
+        result["mutant"]["path"] == "app/models/ticket.rb" && result["mutant"]["line"] == 5
+      end
+      refute_empty validation, "the validates line yields mutants"
+      assert validation.none? { |result| result["status"] == "uncovered" },
+             "a class-body line only the boot ran is tested by the tests that reached its file"
+
       log = File.join(app, "tmp", "mutation_children.log")
       assert_path_exists log, "the child_start hook did not run"
       assert_operator File.readlines(log).size, :>, 0

@@ -157,6 +157,19 @@ module Sabaku
         .sort_by { |test_id| [-reach(path, test_id), test_id] }
     end
 
+    # Every test that executed any line of +path+, sorted.
+    def tests_for_file(path)
+      by_line = @index[path.to_s]
+      return [] unless by_line
+
+      by_line.values.flatten.uniq.sort
+    end
+
+    # `tests_for_file`, ordered like `ordered_tests_for_span`.
+    def ordered_tests_for_file(path)
+      tests_for_file(path).sort_by { |test_id| [-reach(path, test_id), test_id] }
+    end
+
     # Non-destructive union with another CoverageMap.
     def merge(other)
       unless other.is_a?(CoverageMap)
