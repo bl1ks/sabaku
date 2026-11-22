@@ -11,7 +11,7 @@ project the check copies to a scratch directory and mutates).
 
 ## What "practical" means here
 
-Eight claims. Each case is the cheapest experiment that could falsify its claim.
+Ten claims. Each case is the cheapest experiment that could falsify its claim.
 
 | Case | Claim | Falsified by |
 | --- | --- | --- |
@@ -23,6 +23,8 @@ Eight claims. Each case is the cheapest experiment that could falsify its claim.
 | `hostile` | Messy source and unloadable mutants degrade to an honest `skipped`, never to a crash or a free pass. | A traceback, a skipped mutant counted in the score, or a mutant reported killed that never ran. |
 | `ci` | A team can gate on the exit code, the score threshold and the diff allowlist. | Exit codes that disagree with the printed score, `--diff` leaking outside its allowlist, `--report=quiet` printing. |
 | `scale` | A 2k-line project with 60 tests finishes inside a budget, and selection is worth several times its own cost. | Exceeding the budget, or a sample verdict that disagrees with the oracle. |
+| `uncovered` | Every mutant left uncovered says why, and the reason is true. | An uncovered mutant without a reason, a 0/0 file the report does not describe or whose terminal row names no reason, a reason that contradicts the file's state, a planted file with the wrong reason, a class-body line of a reached file left uncovered, or a `not_loaded` / `not_reached` mutant the whole-suite oracle kills. |
+| `matrix_scope` | Under the default class scope the kill matrix never calls a test redundant because of a test in another class, and still names a real in-class duplicate. | An actionable verdict whose `by` is in another class, no actionable in-class duplicate on a fixture that plants one, `--kill-matrix-scope=suite` finding no cross-class redundancy on the same fixture, or a score the matrix moved. |
 
 ## The oracle
 
@@ -99,3 +101,4 @@ them.
 | 2026-11-20 | `stateful` | narrowed | The claim said a `not_infected` decision is never wrong. That is not observable from outside, and on a suite that leaks state a survivor may be optimistic by design. The claim now says what an external check can falsify: reproducibility, and no invented kill. |
 | 2026-11-20 | oracle | clarified | `--per-line=all` applies to the correctness cases; `scale` uses the default `--per-line=1` because it measures the path a user gets by default. |
 | 2026-11-20 | `ci`, `determinism`, `stateful`, `hostile` | tightened | Budgets were 120-180s against runs of 1-4s, which catches an infinite loop but not a twenty-fold blowup. Now 45-60s. |
+| 2026-11-22 | `uncovered`, `matrix_scope` | created | Criteria written from the taxicc_core findings (0/0 files with no reason, cross-class subsumed verdicts) before either case ran. Both are red on `5be0765`, the engine before the reason and scope work. `matrix_scope`'s first fixture planted the duplicate pair on rows every `TillTest` test killed, which the engine rightly calls broad, not actionable; `total` gained a `tip` argument so a third test runs the pair's rows and misses them. The criteria did not change. |

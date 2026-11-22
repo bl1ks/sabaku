@@ -14,7 +14,7 @@ themselves run on the host.
 | Command | What it covers |
 | --- | --- |
 | `./bin/check` | Unit and e2e on minitest 6 and minitest 5, a campaign through the built gem, the four formal regressions |
-| `./bin/practical` | The eight acceptance cases in `harness/` |
+| `./bin/practical` | The ten acceptance cases in `harness/` |
 | `./bin/formal` | Lean proofs, the Lean/Ruby replay, the Quint model at six steps. It runs `lake` and `quint` on the host, not in the container |
 | `./bin/check-rails` | Rails on SQLite and MySQL, against a throwaway `mysql:8.4` container |
 
