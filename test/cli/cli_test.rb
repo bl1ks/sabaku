@@ -314,12 +314,16 @@ class CLITest < Minitest::Test
   # increments it on a call, so a per-test diff attributes it to no test. That used to make
   # the mutant `uncovered`, which drops it from the score without ever running it. The line
   # cannot be attributed, so the runner must run the suite for it instead of grading itself
-  # on nothing.
+  # on nothing, and not only the tests that reached some other line of the file.
   def test_an_endless_method_line_is_measured_instead_of_uncovered
     in_project do
       File.write("lib/endless.rb", <<~RUBY)
         class Endless
           def value = 7
+
+          def label
+            "endless"
+          end
         end
 
         class Plain
@@ -337,6 +341,10 @@ class CLITest < Minitest::Test
           def test_value
             assert_equal 7, Endless.new.value
           end
+
+          def test_label
+            assert_equal "endless", Endless.new.label
+          end
         end
       RUBY
 
@@ -346,7 +354,7 @@ class CLITest < Minitest::Test
 
       assert_equal 0, code, err
       endless = by_line.fetch(2, [])
-      plain = by_line.fetch(7, [])
+      plain = by_line.fetch(11, [])
       refute_empty endless, "the endless method must still yield mutants"
       assert_equal ["killed"], endless.map { |result| result["status"] }.uniq
       refute_empty plain, "the untested method must still yield a mutant"
