@@ -24,8 +24,8 @@ before_fork do
   ActiveRecord::Base.connection_handler.clear_all_connections!
 end
 
-child_start do |index|
-  # optional, see the database recipes below
+child_start do |index, slot|
+  # optional, see the database and Redis recipes below
 end
 ```
 
@@ -43,7 +43,7 @@ The CLI applies the hooks at fixed points:
 | `require_path` | parent | after `Coverage.start`, before the test files load, so `app/` is instrumented from its first parse |
 | `after_boot` | parent | after the test framework and the application have loaded |
 | `before_fork` | parent | once, after the coverage pass, before the first child exists |
-| `child_start` | each child | before the mutated file is evaluated |
+| `child_start` | each child | before the mutated file is evaluated, with the mutant index and the pool slot |
 | `before_test_run` | each child | after the mutation is applied, before the tests run |
 | `after_campaign` | parent | after the last child, before the process exits |
 
@@ -63,6 +63,12 @@ Two neutral children use the same hooks as a mutant: the baseline above, and the
 re-runs one failing test with the file loaded a second time and no mutation. Their `child_start`
 index is the mutant's index, or `-1` for the baseline, so a hook that clones a database per index
 gives the baseline its own copy.
+
+The second argument is the slot: the child's position in the pool, an integer in `0...jobs`. No
+two children that run at the same time share a slot, and a slot is reused only after its child has
+exited. The index names a mutant and grows with the campaign; the slot names a worker and is the
+one to use for a fixed pool of resources. Process isolation passes it to the child as
+`SABAKU_CHILD_SLOT`. A block that takes only `|index|` keeps working.
 
 ## Why eager load
 
@@ -193,6 +199,25 @@ Transactional fixtures hide the clone: they roll back every test, so a shared da
 as well. The fixture's `test_helper.rb` sets `use_transactional_tests = false` and truncates in a
 `setup` block when `SABAKU_DB=mysql`, and its `config/database.yml` selects the mysql2 branch for
 the test environment.
+
+### Redis, one db per worker
+
+Children that share one Redis db see each other's keys, so a test that passes alone can fail
+under `--jobs=4`, or a mutant can survive because another child wrote the key it reads. Redis has
+16 numbered dbs by default. Give each slot its own and empty it before the tests run:
+
+```ruby
+child_start do |_index, slot|
+  ENV["REDIS_URL"] = "redis://localhost:6379/#{slot % 16}"
+end
+
+before_test_run do
+  Redis.new(url: ENV.fetch("REDIS_URL")).flushdb
+end
+```
+
+`child_start` runs before the application boots in process isolation, so it only sets the URL; the
+client is built after boot. Keep `--jobs` at 16 or below, or two slots share a db.
 
 ### Cleanup runs in the parent
 

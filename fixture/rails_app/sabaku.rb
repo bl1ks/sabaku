@@ -19,11 +19,11 @@ before_fork do
   ActiveRecord::Base.connection_handler.clear_all_connections!
 end
 
-child_start do |index|
+child_start do |index, slot|
   # Transactional fixtures isolate each test's writes, so the shared test
   # database works here. docs/rails.md shows the per-child copy recipe for
   # projects that truncate instead.
   path = Rails.root.join("tmp", "mutation_children.log")
   FileUtils.mkdir_p(path.dirname)
-  File.open(path, "a") { |file| file.puts("child_start:#{index}") }
+  File.open(path, "a") { |file| file.puts("child_start:#{index}:#{slot}") }
 end

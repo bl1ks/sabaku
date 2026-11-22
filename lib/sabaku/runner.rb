@@ -58,8 +58,10 @@ module Sabaku
       end
     end
 
+    # `slot` is the pool position in 0...jobs the child holds until it is reaped, so a
+    # child_start hook can give each live child its own share of a resource.
     Job = Struct.new(:pid, :reader, :started_at, :deadline, :entry, :temp_path, :pgroup,
-                     :control, :sweep, keyword_init: true)
+                     :control, :sweep, :slot, keyword_init: true)
 
     # A run of the same child shape with no mutation applied. `reload` re-executes
     # the target file first, which is what the fork path does to a mutant, so a
@@ -302,14 +304,14 @@ module Sabaku
       case @isolation
       when :fork
         verify_baseline!
-        run_pool(entries) { |entry| start_fork_job(entry) }
+        run_pool(entries) { |entry, slot| start_fork_job(entry, slot) }
         attribute_unmeasured
         verify_kills(entries)
       when :process
         # No parent preload needed unless selection was disabled and test_ids
         # were enumerated above; the bootstrap preloads in its own process.
         verify_baseline!
-        run_pool(entries) { |entry| start_process_job(entry) }
+        run_pool(entries) { |entry, slot| start_process_job(entry, slot) }
       else
         raise Sabaku::Error,
               "unknown isolation #{@isolation.inspect} (expected :fork or :process)"
@@ -336,12 +338,18 @@ module Sabaku
     def run_pool(items, controls: false)
       queue = items.dup
       active = []
+      free = (0...@jobs).to_a
 
       loop do
-        while !@halted && active.size < @jobs && !queue.empty?
-          entry = queue.shift
-          job = yield(entry)
-          active << job if job
+        while !@halted && !free.empty? && !queue.empty?
+          slot = free.shift
+          job = yield(queue.shift, slot)
+          if job
+            job.slot = slot
+            active << job
+          else
+            free.unshift(slot)
+          end
         end
         break if active.empty?
 
@@ -358,6 +366,7 @@ module Sabaku
             finish_job(job, timed_out: false)
             halt_fast_fail(job)
             active.delete(job)
+            free << job.slot
           end
         end
 
@@ -365,6 +374,7 @@ module Sabaku
         active.select { |job| now >= job.deadline }.each do |job|
           finish_job(job, timed_out: true)
           active.delete(job)
+          free << job.slot
         end
       end
       mark_skipped(queue) unless controls
@@ -411,13 +421,13 @@ module Sabaku
 
     # ---- fork isolation -----------------------------------------------------
 
-    def start_fork_job(entry)
+    def start_fork_job(entry, slot)
       reader, writer = IO.pipe
       started = clock
 
       pid = fork do
         reader.close
-        fork_child(entry, writer)
+        fork_child(entry, slot, writer)
       end
 
       writer.close
@@ -430,13 +440,13 @@ module Sabaku
       nil
     end
 
-    def start_control_job(control)
+    def start_control_job(control, slot)
       reader, writer = IO.pipe
       started = clock
 
       pid = fork do
         reader.close
-        control_child(control, writer)
+        control_child(control, slot, writer)
       end
 
       writer.close
@@ -449,9 +459,9 @@ module Sabaku
       nil
     end
 
-    def fork_child(entry, writer)
+    def fork_child(entry, slot, writer)
       begin
-        Boot.fire(@config, :child_start, entry.index)
+        Boot.fire(@config, :child_start, entry.index, slot)
         absolute = File.expand_path(entry.mutant.path.to_s)
         source = entry.source_text || File.read(absolute)
         # eval with the original path rather than load of a temp copy: require_relative
@@ -466,20 +476,20 @@ module Sabaku
       run_tests(entry.selected_ids, writer)
     end
 
-    def start_sweep_job(sweep)
+    def start_sweep_job(sweep, slot)
       entry = sweep.entry
       if sweep.first_load || @isolation == :process
         grace = sweep.first_load ? @first_load_grace.to_f : 0.0
-        return spawn_process(sweep, text: entry.mutant.splice(source_text(entry)), ids: sweep.ids,
-                                    path: entry.mutant.path.to_s, neutral: false, grace: grace,
-                                    sweep: true)
+        return spawn_process(sweep, slot, text: entry.mutant.splice(source_text(entry)), ids: sweep.ids,
+                                          path: entry.mutant.path.to_s, neutral: false, grace: grace,
+                                          sweep: true)
       end
 
       reader, writer = IO.pipe
       started = clock
       pid = fork do
         reader.close
-        fork_sweep_child(sweep, writer)
+        fork_sweep_child(sweep, slot, writer)
       end
 
       writer.close
@@ -492,10 +502,10 @@ module Sabaku
       nil
     end
 
-    def fork_sweep_child(sweep, writer)
+    def fork_sweep_child(sweep, slot, writer)
       entry = sweep.entry
       begin
-        Boot.fire(@config, :child_start, entry.index)
+        Boot.fire(@config, :child_start, entry.index, slot)
         absolute = File.expand_path(entry.mutant.path.to_s)
         quietly { TOPLEVEL_BINDING.eval(entry.mutant.splice(source_text(entry)), absolute, 1) }
         Boot.fire(@config, :before_test_run)
@@ -509,9 +519,9 @@ module Sabaku
       exit!(0)
     end
 
-    def control_child(control, writer)
+    def control_child(control, slot, writer)
       begin
-        Boot.fire(@config, :child_start, control.index)
+        Boot.fire(@config, :child_start, control.index, slot)
         if control.reload
           absolute = File.expand_path(control.path.to_s)
           quietly { TOPLEVEL_BINDING.eval(control.text || File.read(absolute), absolute, 1) }
@@ -547,9 +557,10 @@ module Sabaku
 
     # ---- process isolation --------------------------------------------------
 
-    def start_process_job(entry, grace: 0.0)
+    def start_process_job(entry, slot, grace: 0.0)
       spawn_process(
         entry,
+        slot,
         text: entry.mutant.splice(entry.source_text),
         ids: entry.selected_ids,
         path: entry.mutant.path.to_s,
@@ -560,9 +571,10 @@ module Sabaku
 
     # The baseline in process isolation: a bare child that boots the project as a
     # mutant child would, with no mutation applied at all.
-    def start_process_control_job(control)
+    def start_process_control_job(control, slot)
       spawn_process(
         control,
+        slot,
         text: control.text,
         ids: control.ids,
         path: control.path.to_s,
@@ -571,7 +583,7 @@ module Sabaku
       )
     end
 
-    def spawn_process(subject, text:, ids:, path:, neutral:, grace: 0.0, sweep: false)
+    def spawn_process(subject, slot, text:, ids:, path:, neutral:, grace: 0.0, sweep: false)
       temporary = temp_file_for(subject)
       File.write(temporary, text.to_s)
 
@@ -583,6 +595,7 @@ module Sabaku
         "SABAKU_MUTATED_FILE" => temporary,
         "SABAKU_PAYLOAD_FD" => "3",
         "SABAKU_CHILD_INDEX" => subject.index.to_s,
+        "SABAKU_CHILD_SLOT" => slot.to_s,
         "SABAKU_ENV" => JSON.generate(@config.env),
         "SABAKU_REQUIRES" => JSON.generate(@config.requires),
         "SABAKU_SETUP" => @config.setup_path.to_s,
@@ -803,7 +816,7 @@ module Sabaku
       end
 
       without_halting do
-        run_pool(entries) { |entry| start_process_job(entry, grace: grace) }
+        run_pool(entries) { |entry, slot| start_process_job(entry, slot, grace: grace) }
       end
       @unmeasured = []
     end
@@ -835,12 +848,12 @@ module Sabaku
         if @isolation == :fork
           folder = controls.reject(&:first_load)
           first_load = controls.select(&:first_load)
-          run_pool(folder, controls: true) { |control| start_control_job(control) } unless folder.empty?
+          run_pool(folder, controls: true) { |control, slot| start_control_job(control, slot) } unless folder.empty?
           unless first_load.empty?
-            run_pool(first_load, controls: true) { |control| start_process_control_job(control) }
+            run_pool(first_load, controls: true) { |control, slot| start_process_control_job(control, slot) }
           end
         else
-          run_pool(controls, controls: true) { |control| start_process_control_job(control) }
+          run_pool(controls, controls: true) { |control, slot| start_process_control_job(control, slot) }
         end
       end
       @controls
@@ -979,7 +992,7 @@ module Sabaku
       # A sweep asks about a kill already counted, not a new mutant, so --fail-fast
       # does not stop it.
       without_halting do
-        run_pool(sweeps, controls: true) { |sweep| start_sweep_job(sweep) }
+        run_pool(sweeps, controls: true) { |sweep, slot| start_sweep_job(sweep, slot) }
       end
       swept = sweeps.select(&:failed_ids)
       verify_sweeps(swept)

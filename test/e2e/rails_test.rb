@@ -37,7 +37,7 @@ class RailsCampaignTest < Minitest::Test
       assert_equal 0, status.exitstatus, "db:schema:load failed: #{err}"
 
       out, err, status = run!(app, RbConfig.ruby, BIN, "run", "app/models",
-                              "--setup=sabaku.rb", "--jobs=2", "--timeout=5",
+                              "--setup=sabaku.rb", "--jobs=4", "--timeout=5",
                               "--report=json")
       payload = JSON.parse(out.lines.last)
 
@@ -62,7 +62,10 @@ class RailsCampaignTest < Minitest::Test
 
       log = File.join(app, "tmp", "mutation_children.log")
       assert_path_exists log, "the child_start hook did not run"
-      assert_operator File.readlines(log).size, :>, 0
+      slots = File.readlines(log, chomp: true).map { |line| Integer(line.split(":").last) }
+      refute_empty slots
+      assert slots.all? { |slot| (0...4).cover?(slot) }, "slots outside 0...4: #{slots.uniq.sort}"
+      assert_operator slots.uniq.size, :>, 1, "--jobs=4 used one slot: #{slots.uniq.sort}"
     end
   end
 

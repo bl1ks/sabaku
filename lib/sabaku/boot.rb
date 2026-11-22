@@ -10,7 +10,8 @@ module Sabaku
   #                  before the adapter preloads tests
   #   after_boot     after the test framework and application are loaded
   #   before_fork    in the parent, once, before any child exists
-  #   child_start    in each child, before the mutated file is evaluated
+  #   child_start    in each child, before the mutated file is evaluated, with the
+  #                  mutant index and the pool slot in 0...jobs
   #   before_test_run in each child, after the mutation is applied
   module Boot
     module_function

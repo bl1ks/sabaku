@@ -13,6 +13,8 @@
 #   SABAKU_MUTANT_PATH  repo-relative path of the mutated file
 #   SABAKU_MUTATED_FILE absolute path of the mutated temporary file
 #   SABAKU_PAYLOAD_FD   fd number of the completion pipe (3)
+#   SABAKU_CHILD_INDEX  the mutant's index, the first child_start argument
+#   SABAKU_CHILD_SLOT   the pool slot in 0...jobs, the second child_start argument
 #   SABAKU_TEST_GLOBS   JSON array of the parent adapter's test globs
 #   SABAKU_NEUTRAL      "1" boots the project with no mutation applied
 #                              (the baseline check in process isolation)
@@ -48,6 +50,7 @@ module Sabaku
           root = File.expand_path(ENV.fetch("SABAKU_ROOT", Dir.pwd))
           Dir.chdir(root)
           index = Integer(ENV.fetch("SABAKU_CHILD_INDEX", "0"))
+          slot = Integer(ENV.fetch("SABAKU_CHILD_SLOT", "0"))
           target_path = ENV.fetch("SABAKU_MUTANT_PATH")
           mutated_file = ENV.fetch("SABAKU_MUTATED_FILE")
           test_ids = JSON.parse(ENV.fetch("SABAKU_TEST_IDS", "[]"))
@@ -60,7 +63,7 @@ module Sabaku
           install_loader(target_path, mutated_file, root) unless neutral?
           @setup = load_setup
           apply_env
-          fire(:child_start, index)
+          fire(:child_start, index, slot)
           apply_requires
           @adapter.preload!
           fire(:after_boot)

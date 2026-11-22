@@ -264,8 +264,10 @@ network or filesystem call in an `if` body keeps that `if` live.
 
 `--setup` gives a Rails app the hooks it needs: `env`, `require_path`, `after_boot`
 (`eager_load!`), `before_fork` (disconnect the pool), `child_start` and `before_test_run`
-(per-child database). [`docs/rails.md`](docs/rails.md) has the recipes for transactional
-fixtures, per-child SQLite copies, PostgreSQL templates, and MySQL clones, plus what can and
+(per-child database). `child_start { |index, slot| }` gets the pool slot in `0...jobs`, so each
+running child can own a Redis db or another per-worker resource. [`docs/rails.md`](docs/rails.md)
+has the recipes for transactional fixtures, per-child SQLite copies, PostgreSQL templates, MySQL
+clones and a Redis db per slot, plus what can and
 cannot be targeted. `bin/check-rails` runs both campaigns, with a throwaway MySQL server for the
 MySQL half.
 

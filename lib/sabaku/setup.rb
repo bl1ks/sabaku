@@ -14,7 +14,7 @@ module Sabaku
   #     require_path "./config/environment"
   #     after_boot     { Rails.application.eager_load! }
   #     before_fork    { ActiveRecord::Base.connection_pool.disconnect! }
-  #     child_start    { |index| Database.clone_for(index) }
+  #     child_start    { |index, slot| Database.clone_for(slot) }
   #     after_campaign { Database.drop_clones }
   #   end
   #

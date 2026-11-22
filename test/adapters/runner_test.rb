@@ -223,6 +223,34 @@ class RunnerTest < Minitest::Test
     assert_equal %w[child_start:0 before_test_run child_start:1 before_test_run],
                  lines.drop(2)
   end
+
+  def test_child_start_receives_a_worker_slot_below_jobs
+    %i[fork process].each do |isolation|
+      FileUtils.mkdir_p(File.join(@tmpdir, isolation.to_s))
+      log = File.join(@tmpdir, "slots-#{isolation}.log")
+      setup_path = File.join(@tmpdir, "slots-#{isolation}.rb")
+      File.write(setup_path, <<~RUBY)
+        child_start do |index, slot|
+          File.open(#{log.inspect}, "a") { |file| file.puts("\#{index}:\#{slot}") }
+        end
+      RUBY
+
+      in_project("tiny_minitest", glob: "test/*_case.rb") do |root|
+        mutants = %w[a-b a*b b+a a].map do |replacement|
+          build_mutant(root: root, line: 5, original: "a + b", replacement: replacement)
+        end
+        config = tiny_config(setup: Sabaku.setup(setup_path), setup_path: setup_path,
+                             isolation: isolation, jobs: 2,
+                             output: File.join(@tmpdir, isolation.to_s, "report.json"))
+        Sabaku::Runner.new(config, analyzer: nil, adapter: minitest_adapter,
+                                   coverage_map: tiny_coverage_map).call(mutants)
+      end
+
+      starts = File.readlines(log, chomp: true).map { |line| line.split(":").map { Integer(_1) } }
+      assert_equal [0, 1, 2, 3], starts.map(&:first).sort, isolation
+      assert_equal [0, 1], starts.map(&:last).uniq.sort, isolation
+    end
+  end
 end
 
 # A plain module the setup file can call from a forked child.
