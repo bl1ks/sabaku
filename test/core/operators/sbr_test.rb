@@ -88,4 +88,17 @@ class SbrTest < Minitest::Test
     body = built.flat_nodes.grep(Prism::DefNode).first.body
     assert_empty operator(:sbr).mutations(body, built)
   end
+
+  def test_a_def_after_sig_is_not_removed_from_a_begin_block
+    # Class bodies are already out of SBR. A `begin` / `do` body still runs SBR, and that is
+    # where a `sig` / `def` pair must stay together so re-evaluation does not raise.
+    text = "begin\n  sig { returns(Integer) }\n  def one\n    1\n  end\n  two\nend\n"
+    built = source(text)
+    mutants = mutants_for(built, :sbr)
+
+    assert(mutants.none? { |mutant| !mutant.splice(text).include?("def one") },
+           "deleting the def after sig only produces an unloadable file")
+    assert(mutants.any? { |mutant| !mutant.splice(text).include?("two") },
+           "other statements in the same list stay removable")
+  end
 end

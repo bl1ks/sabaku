@@ -51,7 +51,18 @@ module Sabaku
 
         indices = (0...statements.length).to_a
         indices = indices[0...-1] if parent.is_a?(Prism::DefNode)
-        indices
+        # A `sig` then `def` pair: deleting the def leaves the sig for the next
+        # re-evaluation, and sorbet-runtime raises "sig twice" / "sig without def".
+        # That mutant never loads, so it is not a behaviour fault site.
+        indices.reject { |index| pinned_by_sig?(statements, index) }
+      end
+
+      def self.pinned_by_sig?(statements, index)
+        return false unless statements[index].is_a?(Prism::DefNode)
+        return false if index.zero?
+
+        previous = statements[index - 1]
+        previous.is_a?(Prism::CallNode) && previous.receiver.nil? && previous.name == :sig
       end
 
       def self.rebuild(statements, index, node, source)
@@ -64,7 +75,7 @@ module Sabaku
         rebuilt
       end
 
-      private_class_method :removable_indices, :rebuild
+      private_class_method :removable_indices, :pinned_by_sig?, :rebuild
     end
   end
 end

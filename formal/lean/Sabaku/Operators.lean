@@ -112,6 +112,10 @@ def removableIndices (c : Container) (n : Nat) : List Nat :=
   else if c = Container.defn then List.range (n - 1)
   else List.range n
 
+/-- Ruby then filters with `pinned_by_sig?`. The filter only removes indices; it never adds. -/
+def removableIndicesPinned (c : Container) (n : Nat) (pinned : Nat → Bool) : List Nat :=
+  (removableIndices c n).filter (fun i => !(pinned i))
+
 theorem sbr_declaration_none (c : Container) (h : c.isDeclaration = true) (n : Nat) :
     removableIndices c n = [] := by
   unfold removableIndices
@@ -151,6 +155,12 @@ theorem sbr_nonempty (c : Container) (n : Nat) (hn : 2 ≤ n) (hc : c.isDeclarat
   · split
     · simp_all
     · split <;> simp [List.length_range] <;> omega
+
+theorem sbr_pinned_subset (c : Container) (n : Nat) (pinned : Nat → Bool) :
+    ∀ i, i ∈ removableIndicesPinned c n pinned → i ∈ removableIndices c n := by
+  intro i h
+  simp [removableIndicesPinned, List.mem_filter] at h
+  exact h.1
 
 /-- `Uoi.negation_mutations`: the replacement is the receiver's text with the `!` dropped. -/
 def bang (p : List UInt8) : List UInt8 := [33] ++ p
