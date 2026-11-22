@@ -54,4 +54,16 @@ class ResultTest < Minitest::Test
   def test_to_h_has_no_kills_key_without_a_row
     refute build(:survived).to_h.key?(:kills)
   end
+
+  def test_every_status_has_a_closed_set_of_reasons
+    assert_equal Sabaku::Result::STATUSES.sort, Sabaku::Result::REASONS.keys.sort
+    assert_equal :fail_fast, build(:skipped, reason: :fail_fast).reason
+    assert_equal :harness, build(:error, reason: "harness").reason
+    assert_raises(ArgumentError) { build(:skipped, reason: :not_infected) }
+    assert_raises(ArgumentError) { build(:killed, reason: :not_detected) }
+  end
+
+  def test_a_result_without_a_reason_is_still_legal
+    %i[killed survived timeout error uncovered skipped].each { |status| assert_nil build(status).reason }
+  end
 end

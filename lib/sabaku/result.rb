@@ -6,18 +6,39 @@ module Sabaku
   # What happened to one mutant. `duration` is wall time inside the child, in seconds.
   # `kills` is the mutant's full row of the kill graph, present only under --kill-matrix and
   # only when every selected test ran to a verdict.
-  Result = Data.define(:mutant, :status, :duration, :failed_test, :message, :reason, :kills) do
+  Result = Data.define(:mutant, :status, :duration, :failed_test, :message, :reason, :kills)
+
+  class Result
     STATUSES = %i[killed survived timeout error uncovered skipped].freeze
-    # Why a survivor survived. `not_detected` means a covering test saw the changed
-    # value and still passed; `not_infected` means no covering test saw a change at all.
-    REASONS = %i[not_detected not_infected].freeze
+    # Why a mutant ended in its status, one closed set per status. The report groups by
+    # these, never by the message, which is for people. nil stays legal on every status:
+    # a cached or library-built result may predate the classification.
+    #
+    #   survived  not_detected: a covering test saw the changed value and still passed;
+    #             not_infected: no covering test saw a change at all
+    #   skipped   fail_fast: --fail-fast stopped before it was scheduled;
+    #             mutation_unloadable: the unmutated file reloads, the mutated one does not;
+    #             suite_unloadable: the first-load surface could not boot with it
+    #   timeout   deadline: the parent killed the child at its deadline
+    #   error     unverified_kill: the killing test fails with no mutation applied;
+    #             harness: the child or the runner failed outside the tests
+    REASONS = {
+      killed: [],
+      survived: %i[not_detected not_infected],
+      timeout: %i[deadline],
+      error: %i[unverified_kill harness],
+      uncovered: [],
+      skipped: %i[fail_fast mutation_unloadable suite_unloadable]
+    }.transform_values(&:freeze).freeze
 
     def initialize(mutant:, status:, duration: 0.0, failed_test: nil, message: nil, reason: nil,
                    kills: nil)
       raise ArgumentError, "unknown status #{status.inspect}" unless STATUSES.include?(status)
 
       reason = reason&.to_sym
-      raise ArgumentError, "unknown reason #{reason.inspect}" unless reason.nil? || REASONS.include?(reason)
+      unless reason.nil? || REASONS.fetch(status).include?(reason)
+        raise ArgumentError, "unknown reason #{reason.inspect} for #{status}"
+      end
 
       check_kills(status, failed_test, kills) unless kills.nil?
 

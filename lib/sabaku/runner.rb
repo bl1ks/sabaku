@@ -143,6 +143,7 @@ module Sabaku
           mutant: entry.mutant,
           status: :skipped,
           duration: 0.0,
+          reason: :fail_fast,
           message: "not run: --fail-fast stopped at the first survivor"
         )
       end
@@ -218,6 +219,7 @@ module Sabaku
           mutant: mutant,
           status: :error,
           duration: 0.0,
+          reason: :harness,
           message: "#{e.class}: #{e.message}"
         )
       )
@@ -392,6 +394,7 @@ module Sabaku
           mutant: entry.mutant,
           status: :skipped,
           duration: 0.0,
+          reason: :fail_fast,
           message: "not run: --fail-fast stopped at the first survivor"
         )
       end
@@ -623,6 +626,7 @@ module Sabaku
         record_control(job.control, payload, status, timed_out, duration)
       elsif timed_out
         job.entry.result = Result.new(mutant: job.entry.mutant, status: :timeout, duration: duration,
+                                      reason: :deadline,
                                       message: "exceeded #{format('%.3f', @timeout)}s deadline")
       else
         job.entry.result = classify(job.entry, payload, status, duration)
@@ -705,6 +709,7 @@ module Sabaku
       # surface.
       if entry.first_load
         return Result.new(mutant: entry.mutant, status: :skipped, duration: duration,
+                          reason: :suite_unloadable,
                           message: "not measured: the suite could not load with this " \
                                    "mutation (#{reason})")
       end
@@ -740,7 +745,7 @@ module Sabaku
         if verdict[:ok]
           entry.result =
             Result.new(mutant: entry.mutant, status: :skipped,
-                       duration: entry.result.duration,
+                       duration: entry.result.duration, reason: :mutation_unloadable,
                        message: "not measured: the mutated file does not load (#{reason})")
         else
           # The file itself cannot be loaded twice. The mutant may still be
@@ -769,7 +774,7 @@ module Sabaku
         detail = @first_load_boot_message || "the fresh-process surface did not boot"
         entries.each do |entry|
           entry.result = Result.new(mutant: entry.mutant, status: :skipped,
-                                    duration: entry.result.duration,
+                                    duration: entry.result.duration, reason: :suite_unloadable,
                                     message: "not measured: #{detail}")
         end
         return
@@ -909,7 +914,7 @@ module Sabaku
               end
         message = "unverified kill: #{verdict[:failed_id] || "a test"} fails when #{how}#{detail}"
         entry.result = Result.new(mutant: entry.mutant, status: :error,
-                                  duration: entry.result.duration,
+                                  duration: entry.result.duration, reason: :unverified_kill,
                                   failed_test: entry.result.failed_test, message: message)
       end
     end
@@ -1096,7 +1101,8 @@ module Sabaku
     end
 
     def error_result(entry, message, duration = 0.0)
-      Result.new(mutant: entry.mutant, status: :error, duration: duration, message: message)
+      Result.new(mutant: entry.mutant, status: :error, duration: duration, reason: :harness,
+                 message: message)
     end
 
     # ---- cache + temp files -------------------------------------------------

@@ -106,6 +106,40 @@ class ReportTest < Minitest::Test
     assert_equal({ "not_detected" => 1, "not_infected" => 1 }, payload["survived_reasons"])
   end
 
+  def reasoned(status, reason, line: 1, message: nil)
+    Sabaku::Result.new(mutant: mutant(line: line), status: status, reason: reason, message: message)
+  end
+
+  def test_every_unscored_status_is_split_by_its_reason
+    results = [
+      reasoned(:skipped, :fail_fast, message: "not run: --fail-fast stopped at the first survivor"),
+      reasoned(:skipped, :mutation_unloadable, line: 2, message: "the mutated file does not load (boom)"),
+      reasoned(:timeout, :deadline, line: 3),
+      reasoned(:error, :unverified_kill, line: 4, message: "unverified kill: A#t fails")
+    ]
+    doc = report(results)
+
+    assert_includes doc.status_lines, "fail-fast 1, mutation does not load 1"
+    assert_includes doc.status_lines, "deadline 1"
+    assert_includes doc.status_lines, "unverified kill 1"
+    payload = JSON.parse(doc.to_json)
+    assert_equal({ "skipped" => { "fail_fast" => 1, "mutation_unloadable" => 1 },
+                   "timeout" => { "deadline" => 1 }, "error" => { "unverified_kill" => 1 } },
+                 payload["reasons"])
+  end
+
+  def test_not_measured_groups_by_reason_and_leaves_fail_fast_to_the_count
+    results = [
+      reasoned(:skipped, :fail_fast, message: "not run: --fail-fast stopped at the first survivor"),
+      reasoned(:skipped, :suite_unloadable, line: 2, message: "the suite could not load (boom)")
+    ]
+    text = report(results).unmeasured_lines
+
+    assert_includes text, "not measured (not scored):"
+    assert_includes text, "lib/pricing.rb:2  the suite could not load (boom)"
+    refute_includes text, "--fail-fast"
+  end
+
   MatrixMutant = Struct.new(:id, :path, :line, :column, :operator, :node_kind, :original,
                             :replacement, :description, keyword_init: true)
 

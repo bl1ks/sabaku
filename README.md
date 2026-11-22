@@ -68,6 +68,12 @@ fail the run:
 sabaku run --min-score=70 --report=json --output=mutation.json
 ```
 
+Every unscored status names why, under its row in the terminal and in the JSON report's
+`reasons` (`{"skipped" => {"mutation_unloadable" => 2}, ...}`): a timeout hit its `deadline`; an
+error is an `unverified_kill` or a `harness` failure; a skipped mutant was stopped by
+`fail_fast`, or its mutation (`mutation_unloadable`) or the first-load suite (`suite_unloadable`)
+does not load.
+
 The reported score is printed at one decimal and `--min-score` compares that same value, so the
 number in the output and the exit code cannot disagree.
 

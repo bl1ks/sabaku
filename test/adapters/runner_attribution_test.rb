@@ -77,6 +77,7 @@ class RunnerAttributionTest < Minitest::Test
     ).first
 
     assert_equal :error, result.status, result.message
+    assert_equal :unverified_kill, result.reason
     assert_match(/unverified kill/, result.message)
     assert_match(/loaded once, with no mutation/, result.message)
   end
@@ -143,6 +144,7 @@ class RunnerAttributionTest < Minitest::Test
                                     coverage_map: map).call(mutants).first
 
       assert_equal :error, result.status, result.message
+      assert_equal :harness, result.reason
       assert_match(/harness blew up/, result.message)
       refute_match(/does not load/, result.message)
     end
@@ -159,6 +161,7 @@ class RunnerAttributionTest < Minitest::Test
     ).first
 
     assert_equal :skipped, result.status, result.message
+    assert_equal :mutation_unloadable, result.reason
     assert_match(/the mutated file does not load/, result.message)
     assert_match(/ArgumentError/, result.message)
   end

@@ -2,6 +2,8 @@
 
 require "json"
 
+require_relative "result"
+
 module Sabaku
   # Turns the result list into the two shapes a user sees: a terminal summary and JSON.
   # Everything is derived from Result values, so the report never re-runs or re-parses.
@@ -9,6 +11,18 @@ module Sabaku
     ORDER = %i[killed survived timeout uncovered error skipped].freeze
 
     MATRIX_LIST_LIMIT = 20
+
+    REASON_LABELS = {
+      not_detected: "not detected", not_infected: "not infected",
+      deadline: "deadline",
+      unverified_kill: "unverified kill", harness: "harness",
+      fail_fast: "fail-fast", mutation_unloadable: "mutation does not load",
+      suite_unloadable: "suite does not load"
+    }.freeze
+
+    # A skipped mutant whose reason the user cannot read off the count: --fail-fast is
+    # the one they asked for.
+    UNMEASURED = (Result::REASONS[:skipped] - %i[fail_fast]).freeze
 
     attr_reader :results, :config, :kill_matrix
 
@@ -50,6 +64,19 @@ module Sabaku
       end.transform_values(&:size)
     end
 
+    # status => {reason => count}, for the statuses with at least one reasoned result.
+    # Survivors use `survivor_reasons`, so an unclassified one counts as not_detected.
+    def reasons
+      @reasons ||= begin
+        tally = results.filter_map do |result|
+          reason = result.respond_to?(:reason) ? result.reason : nil
+          [result.status, reason] unless reason.nil? || result.status == :survived
+        end.group_by(&:first).transform_values { |pairs| pairs.map(&:last).tally }
+        tally[:survived] = survivor_reasons unless survivor_reasons.empty?
+        ORDER.filter_map { |status| [status, tally[status]] if tally[status] }.to_h
+      end
+    end
+
     def per_file
       @per_file ||= results.group_by { |r| r.mutant.path }.sort.map do |path, list|
         counted = list.count(&:counted?)
@@ -86,15 +113,19 @@ module Sabaku
 
         share = results.empty? ? 0.0 : count.fdiv(results.size) * 100
         out << format("  %-#{width}s  %5d  %5.1f%%%s\n", status, count, share, note_for(status))
-      end
-      if counts[:survived].positive?
-        out << format("    not detected %d, not infected %d\n",
-                      survivor_reasons.fetch(:not_detected, 0),
-                      survivor_reasons.fetch(:not_infected, 0))
+        out << reason_line(status) if reasons[status]
       end
       out << format("\n  mutation score  %5.1f%%  (killed / killed+survived+timeout)\n",
                     score_pct)
       out << "\n"
+    end
+
+    def reason_line(status)
+      tally = reasons.fetch(status)
+      shown = Result::REASONS.fetch(status).select do |reason|
+        status == :survived || tally.fetch(reason, 0).positive?
+      end
+      "    #{shown.map { |reason| "#{REASON_LABELS.fetch(reason)} #{tally.fetch(reason, 0)}" }.join(", ")}\n"
     end
 
     def note_for(status)
@@ -144,14 +175,12 @@ module Sabaku
       text.length > limit ? "#{text[0, limit - 1]}..." : text
     end
 
-    # Skipped covers two very different things: --fail-fast stopped the run
-    # (expected, the user asked for it) and a mutant nobody could measure (a
-    # file that cannot be reloaded, or a mutation that does not load). Only the
-    # second is information the user cannot get from the count, so the terminal
-    # names those and leaves the fail-fast remainder to the status line.
+    # Only an unmeasured mutant carries information the user cannot get from the
+    # count, so the terminal names those and leaves the fail-fast remainder to the
+    # status line.
     def unmeasured_lines
       unmeasured = results.select do |result|
-        result.status == :skipped && result.message.to_s.start_with?("not measured: ")
+        result.status == :skipped && result.respond_to?(:reason) && UNMEASURED.include?(result.reason)
       end
       return "" if unmeasured.empty?
 
@@ -263,6 +292,7 @@ module Sabaku
         files: per_file,
         results: results.map(&:to_h),
         survived_reasons: survivor_reasons.transform_keys(&:to_s),
+        reasons: reasons.to_h { |status, tally| [status, tally.transform_keys(&:to_s)] },
         survivors: survivors.map do |result|
           mutant = result.mutant
           { path: mutant.path, line: mutant.line, column: mutant.column,

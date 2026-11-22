@@ -192,7 +192,12 @@ raise for an ordinary test failure, and must never call `exit`.
 Runner.new(config, analyzer:, adapter:, coverage_map:, weak:) #call -> Array[Result]
 Result = Data.define(:mutant, :status, :duration, :failed_test, :message, :reason, :kills)
 # status: :killed | :survived | :timeout | :error | :uncovered | :skipped
-# reason: :not_detected | :not_infected | nil. A survivor without a reason was not classified.
+# reason: one of Result::REASONS[status], or nil when the result was not classified
+#   survived  :not_detected | :not_infected
+#   timeout   :deadline
+#   error     :unverified_kill | :harness
+#   skipped   :fail_fast | :mutation_unloadable | :suite_unloadable
+# The report groups unscored results by reason, never by message text.
 # :skipped means --fail-fast stopped before this mutant was scheduled, or no
 # child could measure it (the mutation does not load, on either surface)
 # kills: Kills | nil. Only under --kill-matrix, only on killed and survived results, and

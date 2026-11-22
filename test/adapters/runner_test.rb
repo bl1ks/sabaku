@@ -109,6 +109,7 @@ class RunnerTest < Minitest::Test
       elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
 
       assert_equal [:timeout], results.map(&:status)
+      assert_equal :deadline, results[0].reason
       assert_operator results[0].duration, :>=, 0.2
       assert_operator elapsed, :<, 5.0
 
@@ -181,6 +182,7 @@ class RunnerTest < Minitest::Test
 
       assert_equal %i[killed survived uncovered skipped], results.map(&:status)
       assert_equal 0.0, results.last.duration
+      assert_equal :fail_fast, results.last.reason
       assert_match(/--fail-fast/, results.last.message)
     end
   end
