@@ -53,6 +53,7 @@ Config = Data.define(
   :baseline,     # Boolean, refuse to score a suite that is not green and re-check kills
   :weak,         # Boolean, run the dry-run probe pass
   :kill_matrix,  # Boolean, sweep every killed mutant's selection
+  :kill_matrix_scope, # Symbol, :class | :suite, where one test can make another redundant
   :test_globs    # Array[String], test files to load; [] means test/**/*_test.rb
 )
 Config.default(**overrides) -> Config
@@ -219,10 +220,12 @@ Result = Data.define(:mutant, :status, :duration, :failed_test, :message, :reaso
 Kills = Data.define(:tested, :killers)            # killers ⊆ tested, both sorted
 
 # lib/sabaku/kill_matrix.rb
-KillMatrix.from(results, universe:, selected:)     # selected: {mutant id => test ids}
+KillMatrix.from(results, universe:, selected:, scope: :class)  # selected: {mutant id => test ids}
+KillMatrix.group_of(test_id) -> String              # "Klass#method" -> "Klass"
 KillMatrix#verdicts -> Array[Verdict]               # one per test, sorted by id
-Verdict = Data.define(:test, :kind, :kills, :unique, :tested, :by, :provisional)
+Verdict = Data.define(:test, :kind, :kills, :unique, :tested, :by, :provisional, :group)
 # kind: :kept | :subsumed | :duplicate | :zero | :idle
+# group: the test class under scope :class, "" under :suite. `by` is always in the same group.
 ```
 
 Mutant lifecycle, the whole state machine:

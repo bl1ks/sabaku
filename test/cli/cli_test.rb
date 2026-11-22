@@ -387,6 +387,42 @@ class CLITest < Minitest::Test
     end
   end
 
+  def test_kill_matrix_scope_keeps_redundancy_inside_a_test_class
+    in_project do
+      File.write("lib/ledger.rb", "class Ledger\n  def self.sum(a, b)\n    a + b\n  end\nend\n")
+      FileUtils.mkdir_p("test")
+      File.write("test/ledger_test.rb", <<~RUBY)
+        require "minitest/autorun"
+        require "ledger"
+
+        class LedgerTest < Minitest::Test
+          def test_sum
+            assert_equal 5, Ledger.sum(2, 3)
+          end
+        end
+
+        class LedgerRequestTest < Minitest::Test
+          def test_sum
+            assert_equal 5, Ledger.sum(2, 3)
+          end
+        end
+      RUBY
+      argv = ["run", "lib/ledger.rb", "--operators=aor", "--report=json", "--kill-matrix"]
+
+      verdicts = lambda do |*extra|
+        code, out, err = with_env("SABAKU_NO_CACHE" => "1") { start(argv + extra) }
+        assert_equal 0, code, err
+        matrix = JSON.parse(out.lines.last)["kill_matrix"]
+        [matrix["scope"], matrix["tests"].to_h { |test| [test["id"], test["verdict"]] }]
+      end
+
+      assert_equal ["class", { "LedgerRequestTest#test_sum" => "kept", "LedgerTest#test_sum" => "kept" }],
+                   verdicts.call
+      assert_equal ["suite", { "LedgerRequestTest#test_sum" => "kept", "LedgerTest#test_sum" => "duplicate" }],
+                   verdicts.call("--kill-matrix-scope=suite")
+    end
+  end
+
   def test_help_lists_the_kill_matrix_flag
     code, out, = start(["help"])
 

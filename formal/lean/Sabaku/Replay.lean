@@ -79,33 +79,36 @@ def kindName : KillMatrix.Kind → String
   | .zero => "zero"
   | .idle => "idle"
 
-/-- One `kind,by,unique` per test, in id order, as `KillMatrix#verdicts` lists them. -/
-def matrixTable (n : Nat) (rows : List (List Nat × List Nat)) (inc : List (List Nat)) : String :=
+/-- One `kind,by,unique` per test, in id order, as `KillMatrix#verdicts` lists them. `groups`
+    gives each test's class; dominance holds only inside one. -/
+def matrixTable (n : Nat) (groups : List Nat) (rows : List (List Nat × List Nat))
+    (inc : List (List Nat)) : String :=
   let K : Nat → Nat → Bool := fun t m => (rows.getD m ([], [])).2.contains t
+  let g : Nat → Nat := fun t => groups.getD t 0
   let ms := List.range rows.length
   let ts := List.range n
   let seen := fun t => rows.any (fun r => r.1.contains t) || inc.any (fun r => r.contains t)
   String.intercalate ";" <| ts.map fun t =>
-    let kind := KillMatrix.verdict K ms ts (seen t) t
-    let named := match kind, KillMatrix.witness K ms ts t with
+    let kind := KillMatrix.verdictG g K ms ts (seen t) t
+    let named := match kind, KillMatrix.witnessG g K ms ts t with
       | .subsumed, some b => toString b
       | .duplicate, some b => toString b
       | _, _ => "-"
     let uniq := (ms.filter (KillMatrix.unique K ts t)).length
     s!"{kindName kind},{named},{uniq}"
 
-def checkMatrix (n rowsField incField want : String) : IO Bool := do
-  match String.toNat? n, (parseFields rowsField).mapM parseRow,
+def checkMatrix (n groupsField rowsField incField want : String) : IO Bool := do
+  match String.toNat? n, parseNats groupsField, (parseFields rowsField).mapM parseRow,
         (parseFields incField).mapM parseNats with
-  | some n, some rows, some inc => do
-      let got := matrixTable n rows inc
+  | some n, some groups, some rows, some inc => do
+      let got := matrixTable n groups rows inc
       if got = want then
         IO.println s!"ok matrix {n} {rows.length}"
         return true
       else
         IO.println s!"MISMATCH matrix [{rowsField}] [{incField}]: got [{got}] want [{want}]"
         return false
-  | _, _, _ => do
+  | _, _, _, _ => do
       IO.println s!"MISMATCH matrix: unparseable record"
       return false
 
@@ -113,7 +116,7 @@ def handle (line : String) : IO Bool :=
   match line.splitOn "\t" with
   | ["splice", s, e, txt, repl, want] => checkSplice s e txt repl want
   | ["score", k, s, t, u, e, want] => checkScore k s t u e want
-  | ["matrix", n, rows, inc, want] => checkMatrix n rows inc want
+  | ["matrix", n, groups, rows, inc, want] => checkMatrix n groups rows inc want
   | _ => do
       IO.println s!"MISMATCH: unrecognised record [{line}]"
       return false

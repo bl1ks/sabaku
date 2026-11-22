@@ -15,8 +15,9 @@ class KillMatrixTest < Minitest::Test
                        kills: Sabaku::Kills.new(tested: tested, killers: []))
   end
 
-  def matrix(results, universe: [], selected: {})
-    Sabaku::KillMatrix.from(results, universe: universe, selected: selected)
+  # The dominance algebra below is about one group, so the plain ids share the suite's.
+  def matrix(results, universe: [], selected: {}, scope: :suite)
+    Sabaku::KillMatrix.from(results, universe: universe, selected: selected, scope: scope)
   end
 
   def kind(matrix, test) = matrix.verdict(test).kind
@@ -99,6 +100,38 @@ class KillMatrixTest < Minitest::Test
                  m.to_h[:summary])
   end
 
+  def test_a_test_class_is_its_own_dominance_group
+    rows = [killed("m1", %w[LibTest#test_a RequestTest#test_b RequestTest#test_c]),
+            killed("m2", %w[RequestTest#test_b])]
+
+    by_class = Sabaku::KillMatrix.from(rows, universe: [])
+    assert_equal :kept, kind(by_class, "LibTest#test_a")
+    assert_equal "LibTest", by_class.verdict("LibTest#test_a").group
+    assert_equal [:subsumed, "RequestTest#test_b"],
+                 [kind(by_class, "RequestTest#test_c"), by_class.verdict("RequestTest#test_c").by]
+
+    suite = matrix(rows, scope: :suite)
+    assert_equal [:subsumed, "RequestTest#test_b"],
+                 [kind(suite, "LibTest#test_a"), suite.verdict("LibTest#test_a").by]
+    assert_equal "", suite.verdict("LibTest#test_a").group
+  end
+
+  def test_the_group_is_the_id_before_the_last_hash
+    assert_equal "Pack::WidgetTest", Sabaku::KillMatrix.group_of("Pack::WidgetTest#test_a")
+    assert_equal "loose", Sabaku::KillMatrix.group_of("loose")
+  end
+
+  def test_to_h_names_the_scope_and_counts_the_groups
+    m = Sabaku::KillMatrix.from([killed("m1", %w[A#test_x B#test_y])], universe: %w[C#test_z])
+
+    assert_equal [:class, 3], m.to_h.values_at(:scope, :groups)
+    assert_equal [:suite, 1], matrix([killed("m1", %w[A#test_x B#test_y])]).to_h.values_at(:scope, :groups)
+  end
+
+  def test_an_unknown_scope_is_refused
+    assert_raises(Sabaku::Error) { Sabaku::KillMatrix.from([], universe: [], scope: :pack) }
+  end
+
   # The definitions straight from the Lean model, with no bitmasks and no candidate filter.
   def oracle(rows, tests)
     kills = tests.to_h { |t| [t, rows.each_index.select { |i| rows[i].include?(t) }] }
@@ -114,6 +147,25 @@ class KillMatrixTest < Minitest::Test
       next [t, [:kept, nil]] if by.nil?
 
       [t, [kills[by] == kills[t] ? :duplicate : :subsumed, by]]
+    end
+  end
+
+  def test_class_scope_is_the_suite_verdict_within_each_class_on_random_graphs
+    random = Random.new(20_261_122)
+    200.times do |round|
+      tests = Array.new(random.rand(1..6)) { |i| "#{%w[A B].sample(random: random)}#t#{i}" }.uniq
+      rows = Array.new(random.rand(1..8)) { tests.select { random.rand < 0.4 } }
+      results = rows.each_with_index.map do |killers, i|
+        killers.empty? ? survived("m#{i}", tests) : killed("m#{i}", killers, tested: tests)
+      end
+      by_class = Sabaku::KillMatrix.from(results, universe: tests)
+
+      tests.group_by { |t| t[0] }.each_value do |group|
+        expected = oracle(rows.map { |killers| killers & group }, group)
+        group.each do |t|
+          assert_equal expected[t], [kind(by_class, t), by_class.verdict(t).by], "round #{round}, test #{t}"
+        end
+      end
     end
   end
 

@@ -34,11 +34,14 @@ def bytes(text) = text.bytes.join(",")
 
 # Small kill graphs with equal rows, empty rows and incomplete rows, and the verdict table
 # `Sabaku::KillMatrix` draws from each. Tests are named so that their sorted order is their index,
-# which is how Lean names them.
+# which is how Lean names them. Each test sits in a test class ("G1#T3"); classes are contiguous
+# runs of ids, as sorted minitest ids are.
 def matrix_records(count)
   random = Random.new(7)
   Array.new(count) do
-    tests = Array.new(random.rand(1..6)) { |index| "T#{index}" }
+    groups = [0]
+    (random.rand(1..6) - 1).times { groups << groups.last + (random.rand < 0.4 ? 1 : 0) }
+    tests = groups.each_with_index.map { |group, index| "G#{group}#T#{index}" }
     rows = Array.new(random.rand(0..8)) do
       tested = tests.select { random.rand < 0.7 }
       tested = [tests.sample(random: random)] if tested.empty?
@@ -64,7 +67,7 @@ def matrix_records(count)
     want = matrix.verdicts.map do |verdict|
       [verdict.kind, verdict.by ? tests.index(verdict.by) : "-", verdict.unique].join(",")
     end
-    ["matrix", tests.size,
+    ["matrix", tests.size, groups.join(","),
      rows.map { |tested, killers| "#{index.(tested)}/#{index.(killers)}" }.join(";"),
      incomplete.map { |tested| index.(tested) }.join(";"),
      want.join(";")].join("\t")

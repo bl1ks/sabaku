@@ -100,6 +100,7 @@ tier has no test at all: the suite only exercises the ten-item tier.
 | `--[no-]coverage` | on | test selection; `--no-coverage` runs the whole suite per mutant |
 | `--[no-]weak` | on | probe the dry run and decide uninfected survivors without running them |
 | `--[no-]kill-matrix` | off | run every selected test against each killed mutant and report redundant tests; the score does not change |
+| `--kill-matrix-scope=class\|suite` | `class` | a test is redundant only next to tests of its own class, or next to any test |
 | `--isolation=fork\|process` | `fork` | reload a preloaded suite, or boot a fresh process |
 | `--report=terminal\|json\|quiet` | `terminal` | output |
 | `--output=PATH` | none | write the JSON report |
@@ -127,6 +128,11 @@ Each test gets one verdict:
 | `duplicate` | another test kills exactly the same mutants and sorts first; one test per such group is `kept` |
 | `zero` | selected for a scored mutant and killed none: it runs the code and asserts too little |
 | `idle` | never selected for a killed or survived mutant; a `--fail-fast` stop or an errored mutant can leave a covering test here |
+
+A test is compared only with the tests of its own class (`Klass` in `Klass#test_x`). A small
+unit test that kills a subset of what a request test kills is still `kept`: the two answer
+different questions, and deleting the unit test is not the advice. `--kill-matrix-scope=suite`
+compares every test with every other.
 
 Removing every `subsumed` and `duplicate` test keeps every kill, so the score would not move.
 The kept tests are a cover, not a minimum one. The terminal lists zero-kill tests, redundant

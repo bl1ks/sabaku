@@ -543,6 +543,51 @@ theorem unique_stable_outside :
 
 end Stable
 
+/-! ## Dominance inside a group
+
+`g t` is the group of test `t`: its test class under `--kill-matrix-scope=class`, one constant
+under `suite`. Only a test of the same group can make `t` redundant, so the grouped verdict is the
+suite verdict over `t`'s group, and every theorem above holds group by group. -/
+
+section Grouped
+
+variable (g : Nat → Nat)
+
+def group (ts : List Nat) (t : Nat) : List Nat := ts.filter (fun t' => g t' = g t)
+
+def domG (K : Nat → μ → Bool) (ms : List μ) (t' t : Nat) : Bool :=
+  decide (g t' = g t) && dom K ms t' t
+
+def witnessG (K : Nat → μ → Bool) (ms : List μ) (ts : List Nat) (t : Nat) : Option Nat :=
+  witness K ms (group g ts t) t
+
+def verdictG (K : Nat → μ → Bool) (ms : List μ) (ts : List Nat) (seen : Bool) (t : Nat) : Kind :=
+  verdict K ms (group g ts t) seen t
+
+theorem verdictG_eq_verdict_filter {seen : Bool} {t : Nat} :
+    verdictG g K ms ts seen t = verdict K ms (ts.filter (fun t' => g t' = g t)) seen t := rfl
+
+/-- `KillMatrix#dominators` keeps a candidate only when it shares the test's group. -/
+theorem dominatedG_iff {t : Nat} :
+    dominated K ms (group g ts t) t = true ↔ ∃ t' ∈ ts, domG g K ms t' t = true := by
+  rw [dominated_iff]
+  simp [group, domG, List.mem_filter, and_assoc]
+
+/-- The `by` a grouped verdict names is in the test's own group. -/
+theorem witnessG_same_group {t b : Nat} (h : witnessG g K ms ts t = some b) :
+    b ∈ ts ∧ g b = g t := by
+  obtain ⟨hb, _, _⟩ := witness_spec h
+  simpa [group, List.mem_filter] using hb
+
+/-- Dropping the redundant tests of a group still kills every mutant that group killed. -/
+theorem keptG_preserves_killed {m : μ} (hm : m ∈ ms) (c : Nat) :
+    (∃ t ∈ ts, g t = c ∧ K t m = true) ↔
+      ∃ t ∈ keep K ms (ts.filter (fun t' => g t' = c)), K t m = true := by
+  rw [← kept_preserves_killed hm]
+  simp [List.mem_filter, and_assoc]
+
+end Grouped
+
 /-! ## First failure and the tail sweep -/
 
 /-- The killers among the ids after the first failure: what the sweep child reports. -/

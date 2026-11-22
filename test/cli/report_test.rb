@@ -211,7 +211,7 @@ class ReportTest < Minitest::Test
     assert_equal %w[C#edge C#idle C#smoke C#strong C#twin C#weak], matrix["tests"].map { |t| t["id"] }
     weak = matrix["tests"].find { |t| t["id"] == "C#weak" }
     assert_equal({ "id" => "C#weak", "verdict" => "subsumed", "kills" => 1, "unique" => 0,
-                   "tested" => 2, "by" => "C#strong", "provisional" => true }, weak)
+                   "tested" => 2, "by" => "C#strong", "provisional" => true, "group" => "C" }, weak)
     assert_equal({ "kept" => 1, "subsumed" => 1, "duplicate" => 1, "zero" => 2, "idle" => 1,
                    "provisional" => 2 }, matrix["summary"])
     assert_equal %w[C#strong C#twin C#weak], payload["results"].first["kills"]["killers"]

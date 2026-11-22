@@ -23,13 +23,15 @@ module Sabaku
     :baseline,
     :weak,
     :kill_matrix,
+    :kill_matrix_scope,
     :test_globs
   ) do
     def initialize(paths: [], exclude: [], operators: Operator::Registry.defaults,
                    jobs: 1, timeout: 5.0, per_line: 1,
                    diff_ranges: nil, coverage: true, isolation: :fork,
                    report: :terminal, output: nil, env: {}, requires: [], setup: nil, setup_path: nil,
-                   fail_fast: false, baseline: true, weak: true, kill_matrix: false, test_globs: [])
+                   fail_fast: false, baseline: true, weak: true, kill_matrix: false, kill_matrix_scope: :class,
+                   test_globs: [])
       super(
         paths: Array(paths).map(&:to_s).freeze,
         exclude: Array(exclude).map(&:to_s).freeze,
@@ -50,6 +52,7 @@ module Sabaku
         baseline: baseline ? true : false,
         weak: weak ? true : false,
         kill_matrix: kill_matrix ? true : false,
+        kill_matrix_scope: kill_matrix_scope.to_sym,
         test_globs: Array(test_globs).map(&:to_s).freeze
       )
     end

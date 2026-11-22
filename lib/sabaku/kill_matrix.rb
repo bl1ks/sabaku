@@ -15,15 +15,20 @@ module Sabaku
   #
   # Only complete rows count. A scored mutant without a row is incomplete, and every test it
   # selected is provisional: completing that row could still change the test's verdict.
+  #
+  # Dominance holds only inside a group. Under scope :class the group is the test class, so a
+  # unit test is never reported redundant because a request test happens to hit the same
+  # mutants; under :suite every test shares one group.
   class KillMatrix
     VERDICTS = %i[kept subsumed duplicate zero idle].freeze
+    SCOPES = %i[class suite].freeze
 
-    Verdict = Data.define(:test, :kind, :kills, :unique, :tested, :by, :provisional) do
+    Verdict = Data.define(:test, :kind, :kills, :unique, :tested, :by, :provisional, :group) do
       def redundant? = %i[subsumed duplicate].include?(kind)
 
       def to_h
         { id: test, verdict: kind, kills: kills, unique: unique, tested: tested, by: by,
-          provisional: provisional }
+          provisional: provisional, group: group }
       end
     end
 
@@ -31,13 +36,22 @@ module Sabaku
 
     # universe: every test id the campaign knows. selected: {mutant id => selected test ids},
     # the only source for an incomplete row's tested set.
-    def self.from(results, universe:, selected: {})
-      new(results, universe: universe, selected: selected)
+    def self.from(results, universe:, selected: {}, scope: :class)
+      new(results, universe: universe, selected: selected, scope: scope)
     end
 
-    attr_reader :rows, :incomplete, :verdicts
+    # A minitest id is "Klass#method", and Klass may hold "::".
+    def self.group_of(test)
+      cut = test.rindex("#")
+      cut ? test[0, cut] : test
+    end
 
-    def initialize(results, universe:, selected: {})
+    attr_reader :rows, :incomplete, :verdicts, :scope
+
+    def initialize(results, universe:, selected: {}, scope: :class)
+      @scope = scope.to_sym
+      raise Sabaku::Error, "kill-matrix scope must be one of #{SCOPES.join(", ")}" unless SCOPES.include?(@scope)
+
       @rows = {}
       @incomplete = []
       results.each do |result|
@@ -73,6 +87,8 @@ module Sabaku
     def to_h
       {
         rows: rows.size,
+        scope: scope,
+        groups: verdicts.map(&:group).uniq.size,
         incomplete: incomplete.map do |row|
           { mutant: row.mutant.id, status: row.status, tested: row.tested.size }
         end,
@@ -103,8 +119,10 @@ module Sabaku
     def verdict_for(test, provisional)
       kind, by = classify(test, provisional)
       Verdict.new(test: test, kind: kind, kills: @kills[test], unique: @unique[test],
-                  tested: @tested[test], by: by, provisional: provisional.key?(test))
+                  tested: @tested[test], by: by, provisional: provisional.key?(test), group: group(test))
     end
+
+    def group(test) = scope == :suite ? "" : self.class.group_of(test)
 
     def classify(test, provisional)
       return [:idle, nil] unless @tested[test].positive? || provisional.key?(test)
@@ -125,7 +143,7 @@ module Sabaku
     def dominators(test, mask)
       rarest = @row_killers.each_index.select { |index| mask[index] == 1 }
                            .min_by { |index| @row_killers[index].size }
-      @row_killers[rarest].select { |other| dominates?(other, test) }
+      @row_killers[rarest].select { |other| group(other) == group(test) && dominates?(other, test) }
     end
 
     def dominates?(other, test)
