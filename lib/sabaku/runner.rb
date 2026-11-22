@@ -11,6 +11,7 @@ require_relative "cache"
 require_relative "coverage_map"
 require_relative "errors"
 require_relative "fingerprint"
+require_relative "kill_matrix"
 require_relative "kills"
 require_relative "load_hazard"
 require_relative "result"
@@ -41,7 +42,8 @@ module Sabaku
   # first child never reached, so the first failure plus that tail is every test
   # that kills it. A cached row, or a failure at the end of the selection, needs no
   # child. The pass only ever adds a row to a result, never changes its status, so
-  # the score is the same with the flag on or off.
+  # the score is the same with the flag on or off. A --kill-matrix-focus narrows every row,
+  # and so every sweep, to the focus's tests.
   #
   # The parent preloads the adapter once, then forks one child per mutant (the
   # fast path) or spawns a fresh Ruby running runtime/bootstrap.rb (the portable
@@ -92,6 +94,7 @@ module Sabaku
       @fail_fast = config.respond_to?(:fail_fast) ? config.fail_fast : false
       @baseline = config.respond_to?(:baseline) ? config.baseline : true
       @kill_matrix = config.respond_to?(:kill_matrix) ? config.kill_matrix : false
+      @focus_globs = (@kill_matrix && config.respond_to?(:kill_matrix_focus) && config.kill_matrix_focus) || []
       if @kill_matrix && !adapter.respond_to?(:sweep)
         raise Sabaku::Error, "--kill-matrix needs an adapter that can sweep (#{adapter.class})"
       end
@@ -110,6 +113,9 @@ module Sabaku
     # mutants: Array[Mutant] -> Array[Result] in the same order.
     def call(mutants)
       Boot.env(@config)
+      if focus_ids&.empty?
+        raise Sabaku::Error, "--kill-matrix-focus #{@focus_globs.join(", ")} matched no test"
+      end
       list = Array(mutants)
       @entries = list.each_with_index.map { |mutant, index| prepare_entry(mutant, index) }
       halt_after_prepared_survivor
@@ -132,6 +138,19 @@ module Sabaku
 
     # mutant id -> why its kill-matrix row is missing, one of KillMatrix::CAUSES.
     attr_reader :incomplete_causes
+
+    # The tests every kill-matrix row is cut down to, or nil without a focus: each test of a
+    # class that has a test method in a focus file. Taking whole classes is what keeps a
+    # focus exact, since dominance never leaves a class.
+    def focus_ids
+      return nil if @focus_globs.empty?
+
+      @focus_ids ||= begin
+        groups = all_test_ids.select { |id| focus_file?(@adapter.test_path(id)) }
+                             .to_h { |id| [KillMatrix.group_of(id), true] }
+        all_test_ids.select { |id| groups.key?(KillMatrix.group_of(id)) }
+      end
+    end
 
     private
 
@@ -242,7 +261,7 @@ module Sabaku
       killers = hit[:killers]
       return nil unless @kill_matrix && killers && (killers - selected).empty?
 
-      Kills.new(tested: selected, killers: killers)
+      row(selected, killers, hit[:failed_test])
     end
 
     def selected_test_ids(mutant, source)
@@ -974,15 +993,15 @@ module Sabaku
         next if result.nil? || result.kills
 
         if result.survived?
-          entry.result = result.with_kills(Kills.new(tested: entry.selected_ids, killers: []))
+          entry.result = result.with_kills(row(entry.selected_ids, [], nil))
         elsif result.killed?
           tail = sweep_tail(entry)
           if tail.nil?
             @incomplete_causes[entry.mutant.id] = :foreign_failed_test
-          elsif tail.empty?
+          elsif in_focus(tail).empty?
             write_row(entry, [])
           else
-            sweeps << Sweep.new(index: entry.index, entry: entry, ids: tail)
+            sweeps << Sweep.new(index: entry.index, entry: entry, ids: in_focus(tail))
           end
         end
       end
@@ -1064,7 +1083,20 @@ module Sabaku
         return
       end
 
-      entry.result = entry.result.with_kills(Kills.new(tested: entry.selected_ids, killers: killers))
+      entry.result = entry.result.with_kills(row(entry.selected_ids, killers, entry.result.failed_test))
+    end
+
+    # A focused row still holds the failed test, which ran to a verdict in the first child, so
+    # the Result keeps naming its first killer. KillMatrix drops it if it is outside the focus.
+    def row(selected, killers, failed)
+      first = [failed].compact
+      Kills.new(tested: in_focus(selected) | first, killers: in_focus(killers) | first)
+    end
+
+    def in_focus(ids) = focus_ids ? ids & focus_ids : ids
+
+    def focus_file?(path)
+      path && @focus_globs.any? { |glob| File.fnmatch?(glob, path, File::FNM_PATHNAME | File::FNM_EXTGLOB) }
     end
 
     # A cache hit carries no source text; the sweep reapplies the mutation from the file.
@@ -1164,7 +1196,8 @@ module Sabaku
         next if entry.first_load
         next unless %i[killed survived].include?(entry.result.status)
 
-        kills = entry.result.kills
+        # A focused row lacks the tests outside the focus, so only an unfocused one is stored.
+        kills = focus_ids ? nil : entry.result.kills
         @cache.store(entry.cache_key,
                      status: entry.result.status,
                      failed_test: entry.result.failed_test,

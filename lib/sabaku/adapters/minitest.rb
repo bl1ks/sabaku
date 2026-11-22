@@ -136,6 +136,14 @@ module Sabaku
         @preloaded
       end
 
+      # The repo-relative file that defines the test method, or nil for an unknown id.
+      def test_path(id)
+        ensure_preloaded!
+        klass, method_name = @id_to_pair[id.to_s]
+        location = klass&.instance_method(method_name)&.source_location
+        location && repo_relative(location.first)
+      end
+
       # The files this adapter will load, discovered without loading anything. The
       # runner fingerprints them for the result cache, so a test that changed
       # invalidates the verdicts it produced.

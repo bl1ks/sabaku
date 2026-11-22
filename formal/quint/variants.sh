@@ -37,3 +37,4 @@ flip_matrix report_early FAULT_report_early
 flip_matrix ignore_capacity FAULT_ignore_capacity
 flip_matrix sweep_cached_row FAULT_sweep_cached_row
 flip_matrix drop_without_cause FAULT_drop_without_cause
+flip_matrix tail_ignores_focus FAULT_tail_ignores_focus

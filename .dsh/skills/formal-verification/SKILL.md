@@ -72,7 +72,7 @@ fault variant that stops violating its invariant, or a finding that stops reprod
 - `formal/lean/Sabaku/KillMatrix.lean`: `KillMatrix#dominates?`, `Verdict#by`, `Verdict#unique`,
   the verdict kinds, `Runner#sweep_tail` and `write_row`'s row shape.
 - `formal/quint/matrix.qnt`: `Runner#sweep_killers`, `record_sweep`, `verify_sweeps`,
-  `write_row`, `cached_kills`.
+  `write_row`, `cached_kills`, and the `--kill-matrix-focus` cut of the tail and the row.
 - `formal/regressions.sh`: the four fixed findings, end to end through the CLI and the library.
 - `formal/replay/emit.rb`: the real `Analyzer` over two fixtures and
   `formal/replay/corpus/kitchen_sink.rb`, with every operator in `Registry.ids`, `--per-line=2`;

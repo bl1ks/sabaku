@@ -101,6 +101,7 @@ tier has no test at all: the suite only exercises the ten-item tier.
 | `--[no-]weak` | on | probe the dry run and decide uninfected survivors without running them |
 | `--[no-]kill-matrix` | off | run every selected test against each killed mutant and report redundant tests; the score does not change |
 | `--kill-matrix-scope=class\|suite` | `class` | a test is redundant only next to tests of its own class, or next to any test |
+| `--kill-matrix-focus=GLOB` | every test | sweep and judge only the test classes defined in these files (repeatable; needs scope `class`) |
 | `--sweep-timeout=SEC` | `--timeout` | deadline for one kill-matrix sweep, which runs every selected test after the first failure |
 | `--isolation=fork\|process` | `fork` | reload a preloaded suite, or boot a fresh process |
 | `--report=terminal\|json\|quiet` | `terminal` | output |
@@ -134,6 +135,15 @@ A test is compared only with the tests of its own class (`Klass` in `Klass#test_
 unit test that kills a subset of what a request test kills is still `kept`: the two answer
 different questions, and deleting the unit test is not the advice. `--kill-matrix-scope=suite`
 compares every test with every other.
+
+`--kill-matrix-focus=GLOB` (repeatable) narrows the matrix to the test classes with a test
+method in a matching file, for example `--kill-matrix-focus='test/models/**/*_test.rb'`. A sweep
+runs only those tests, so its cost follows the size of the focus, not the suite. Because a test is
+compared only inside its class, each focused test gets the verdict it would get without the
+focus; only `unique` changes, since it counts the focus's killers alone. The focus needs
+`--kill-matrix-scope=class`, and a focus that matches no test stops the campaign before the first mutant runs.
+The report prints `focus: GLOBS, N of M tests`, and the JSON adds `kill_matrix.focus` with
+`globs`, `tests` and `of`. A focused run does not store rows in the cache.
 
 Removing every `subsumed` and `duplicate` test keeps every kill, so the score would not move.
 The terminal lists only the redundant tests worth acting on. It counts two other kinds apart:

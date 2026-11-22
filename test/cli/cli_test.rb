@@ -423,12 +423,103 @@ class CLITest < Minitest::Test
     end
   end
 
+  def test_kill_matrix_focus_keeps_the_verdicts_of_the_tests_it_names
+    in_project do
+      File.write("lib/till.rb", <<~RUBY)
+        class Till
+          def self.sum(a, b)
+            a + b
+          end
+
+          def self.double(a)
+            a * 2
+          end
+        end
+      RUBY
+      FileUtils.mkdir_p("test/unit")
+      File.write("test/unit/till_test.rb", <<~RUBY)
+        require "minitest/autorun"
+        require "till"
+
+        class TillTest < Minitest::Test
+          def test_sum
+            assert_equal 5, Till.sum(2, 3)
+          end
+
+          def test_sum_again
+            assert_equal 7, Till.sum(3, 4)
+          end
+
+          def test_double
+            assert_equal 6, Till.double(3)
+          end
+        end
+      RUBY
+      File.write("test/request_test.rb", <<~RUBY)
+        require "minitest/autorun"
+        require "till"
+
+        class RequestTest < Minitest::Test
+          def test_both
+            assert_equal 16, Till.double(Till.sum(3, 5))
+          end
+        end
+      RUBY
+      argv = ["run", "lib/till.rb", "--operators=aor", "--report=json", "--kill-matrix",
+              "--tests=test/**/*_test.rb"]
+      campaign = lambda do |*extra|
+        code, out, err = with_env("SABAKU_NO_CACHE" => "1") { start(argv + extra) }
+        assert_equal 0, code, err
+        JSON.parse(out.lines.last)
+      end
+
+      whole = campaign.call
+      part = campaign.call("--kill-matrix-focus=test/unit/**")
+      verdicts = lambda do |payload|
+        payload["kill_matrix"]["tests"].to_h { |test| [test["id"], test.slice("verdict", "by", "kills", "tested")] }
+      end
+
+      assert_equal whole["score"], part["score"]
+      till = verdicts.call(whole).select { |id, _| id.start_with?("TillTest#") }
+      assert_equal 3, till.size
+      assert_equal till, verdicts.call(part)
+      assert_equal({ "globs" => ["test/unit/**"], "tests" => 3, "of" => 4 }, part["kill_matrix"]["focus"])
+      swept = part["results"].filter_map { |result| result["kills"] && (result["kills"]["tested"] - [result["failed_test"]]) }
+      refute_empty swept
+      assert(swept.flatten.none? { |id| id.start_with?("RequestTest#") })
+    end
+  end
+
+  def test_kill_matrix_focus_needs_class_scope
+    code, _out, err = in_project do
+      start(["run", "lib", "--kill-matrix", "--kill-matrix-focus=test/a_test.rb", "--kill-matrix-scope=suite"])
+    end
+
+    assert_equal 2, code
+    assert_includes err, "focus needs --kill-matrix-scope=class"
+  end
+
+  def test_kill_matrix_focus_that_matches_no_test_stops_the_campaign
+    in_project do
+      FileUtils.mkdir_p("test")
+      File.write("lib/unfocused.rb", "class Unfocused\n  def self.add(a, b)\n    a + b\n  end\nend\n")
+      write_test("assert_equal 3, Unfocused.add(1, 2)", basename: "unfocused", klass: "UnfocusedTest")
+      code, _out, err = with_env("SABAKU_NO_CACHE" => "1") do
+        start(["run", "lib/unfocused.rb", "--kill-matrix", "--kill-matrix-focus=test/missing/**"])
+      end
+
+      assert_equal 2, code
+      assert_includes err, "--kill-matrix-focus test/missing/** matched no test"
+    end
+  end
+
   def test_help_lists_the_kill_matrix_flag
     code, out, = start(["help"])
 
     assert_equal 0, code
     assert_includes out, "--kill-matrix"
     assert_includes out, "--sweep-timeout"
+    assert_includes out, "--kill-matrix-focus"
   end
 
   private

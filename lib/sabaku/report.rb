@@ -239,6 +239,9 @@ module Sabaku
       scored = kill_matrix.rows.size + kill_matrix.incomplete.size
       out = +"#{file_lines.empty? ? "" : "\n"}kill matrix: #{kill_matrix.rows.size} of #{scored} " \
              "killed+survived mutants have a complete row\n"
+      if (focus = kill_matrix.focus)
+        out << format("  focus: %s, %d of %d tests\n", config.kill_matrix_focus.join(", "), focus[:tests], focus[:of])
+      end
       out << incomplete_lines unless kill_matrix.incomplete.empty?
       out << format("  tests %d: kept %d, subsumed %d, duplicate %d, zero kills %d, idle %d\n",
                     kill_matrix.verdicts.size, summary[:kept], summary[:subsumed],
@@ -343,7 +346,11 @@ module Sabaku
             description: mutant.description, test_ids: mutant.respond_to?(:test_ids) ? mutant.test_ids : nil }
         end
       }
-      hash[:kill_matrix] = kill_matrix.to_h if kill_matrix
+      if kill_matrix
+        matrix = kill_matrix.to_h
+        matrix[:focus] = { globs: config.kill_matrix_focus, **matrix[:focus] } if matrix[:focus]
+        hash[:kill_matrix] = matrix
+      end
       hash
     end
 

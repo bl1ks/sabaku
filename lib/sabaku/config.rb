@@ -24,6 +24,7 @@ module Sabaku
     :weak,
     :kill_matrix,
     :kill_matrix_scope,
+    :kill_matrix_focus,
     :sweep_timeout,
     :test_globs
   ) do
@@ -32,7 +33,13 @@ module Sabaku
                    diff_ranges: nil, coverage: true, isolation: :fork,
                    report: :terminal, output: nil, env: {}, requires: [], setup: nil, setup_path: nil,
                    fail_fast: false, baseline: true, weak: true, kill_matrix: false, kill_matrix_scope: :class,
-                   sweep_timeout: nil, test_globs: [])
+                   kill_matrix_focus: [], sweep_timeout: nil, test_globs: [])
+      focus = Array(kill_matrix_focus).map(&:to_s).freeze
+      # A focus is exact because dominance never crosses a class; under :suite it would not be.
+      if focus.any? && kill_matrix_scope.to_sym == :suite
+        raise Sabaku::Error, "a kill-matrix focus needs --kill-matrix-scope=class"
+      end
+
       super(
         paths: Array(paths).map(&:to_s).freeze,
         exclude: Array(exclude).map(&:to_s).freeze,
@@ -54,6 +61,7 @@ module Sabaku
         weak: weak ? true : false,
         kill_matrix: kill_matrix ? true : false,
         kill_matrix_scope: kill_matrix_scope.to_sym,
+        kill_matrix_focus: focus,
         sweep_timeout: sweep_timeout.nil? ? nil : Float(sweep_timeout),
         test_globs: Array(test_globs).map(&:to_s).freeze
       )

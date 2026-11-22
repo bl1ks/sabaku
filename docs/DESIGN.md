@@ -54,6 +54,8 @@ Config = Data.define(
   :weak,         # Boolean, run the dry-run probe pass
   :kill_matrix,  # Boolean, sweep every killed mutant's selection
   :kill_matrix_scope, # Symbol, :class | :suite, where one test can make another redundant
+  :kill_matrix_focus, # Array[String], test-file globs the matrix is cut down to; [] means every
+                      # test. Config refuses a focus under :suite
   :sweep_timeout, # Float | nil, deadline for one kill-matrix sweep; nil means :timeout
   :test_globs    # Array[String], test files to load; [] means test/**/*_test.rb
 )
@@ -221,8 +223,11 @@ Result = Data.define(:mutant, :status, :duration, :failed_test, :message, :reaso
 Kills = Data.define(:tested, :killers)            # killers ⊆ tested, both sorted
 
 # lib/sabaku/kill_matrix.rb
-KillMatrix.from(results, universe:, selected:, scope: :class, causes: {})
+KillMatrix.from(results, universe:, selected:, scope: :class, causes: {}, focus: nil)
 # selected: {mutant id => test ids}. causes: {mutant id => cause}, from Runner#incomplete_causes
+# focus: test ids from Runner#focus_ids, or nil. The universe, every row and every incomplete
+#   row keep only these tests before any verdict; a row left with none is dropped
+Runner#focus_ids -> Array[String] | nil   # every test of a class with a test in a focus file
 KillMatrix::Incomplete = Data.define(:mutant, :status, :tested, :cause)
 # cause: :sweep_timeout | :sweep_crash | :bad_payload | :unverified_killer
 #        | :foreign_failed_test | :no_killer
@@ -267,6 +272,10 @@ killed --(sweep child runs s after t)--> clean payload --(swept killers pass the
 killed --(t is not in s)--> no row (:foreign_failed_test)
 survived --> row {} (every selected test already passed)
 ```
+
+Under `--kill-matrix-focus` the sweep runs only the focus's tests in the tail, and every row is
+cut to the focus plus `t`, which already ran. The focus holds whole test classes and dominance
+never leaves a class, so a focused test's verdict is the one it gets without the focus.
 
 A kill whose child died before naming a test sweeps the whole selection. The pass runs even when
 every mutant was a cache hit, and `--fail-fast` does not stop it, because it asks about kills

@@ -219,6 +219,47 @@ class KillMatrixTest < Minitest::Test
     end
   end
 
+  def test_a_focus_keeps_only_its_tests_and_the_rows_that_reach_them
+    results = [killed("m1", %w[A#a B#b], tested: %w[A#a A#c B#b]),
+               killed("m2", %w[B#b], tested: %w[B#b]),
+               Sabaku::Result.new(mutant: Mutant.new("m3"), status: :killed, failed_test: "B#b"),
+               Sabaku::Result.new(mutant: Mutant.new("m4"), status: :killed, failed_test: "A#a")]
+    m = Sabaku::KillMatrix.from(results, universe: %w[A#a A#c A#idle B#b],
+                                         selected: { "m3" => %w[B#b], "m4" => %w[A#a B#b] },
+                                         focus: %w[A#a A#c A#idle])
+
+    assert_equal %w[A#a A#c A#idle], m.verdicts.map(&:test)
+    assert_equal({ "m1" => [%w[A#a A#c], %w[A#a]] },
+                 m.rows.transform_values { |row| [row.tested, row.killers] })
+    assert_equal [["m4", %w[A#a]]], m.incomplete.map { |row| [row.mutant.id, row.tested] }
+    assert_equal({ tests: 3, of: 4 }, m.to_h[:focus])
+    assert_nil Sabaku::KillMatrix.from(results, universe: []).to_h[:focus]
+  end
+
+  def test_a_focus_on_whole_classes_keeps_their_verdicts_on_random_graphs
+    random = Random.new(20_261_123)
+    200.times do |round|
+      tests = Array.new(random.rand(1..8)) { |i| "#{%w[A B C].sample(random: random)}#t#{i}" }.uniq
+      rows = Array.new(random.rand(1..8)) { tests.select { random.rand < 0.4 } }
+      results = rows.each_with_index.map do |killers, i|
+        next Sabaku::Result.new(mutant: Mutant.new("m#{i}"), status: :killed) if random.rand < 0.15
+
+        killers.empty? ? survived("m#{i}", tests) : killed("m#{i}", killers, tested: tests)
+      end
+      selected = results.to_h { |result| [result.mutant.id, tests] }
+      focus = tests.select { |t| %w[A C].include?(t[0]) }
+
+      whole = Sabaku::KillMatrix.from(results, universe: tests, selected: selected)
+      part = Sabaku::KillMatrix.from(results, universe: tests, selected: selected, focus: focus)
+
+      assert_equal focus.sort, part.verdicts.map(&:test), "round #{round}"
+      focus.each do |t|
+        shape = ->(v) { [v.kind, v.by, v.provisional, v.confidence, v.tier] }
+        assert_equal shape.call(whole.verdict(t)), shape.call(part.verdict(t)), "round #{round}, test #{t}"
+      end
+    end
+  end
+
   def test_matches_the_definitions_and_keeps_every_kill_on_random_graphs
     random = Random.new(20_261_121)
     200.times do |round|

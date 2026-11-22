@@ -16,6 +16,11 @@ module Sabaku
   # Only complete rows count. A scored mutant without a row is incomplete, and every test it
   # selected is provisional: completing that row could still change the test's verdict.
   #
+  # A focus restricts the universe, every row and every incomplete row to its tests before
+  # any verdict exists, and drops a row that keeps no test. When the focus holds whole groups
+  # it changes no verdict of its tests, since dominance, broad rows and provisional all stay
+  # inside a group. `unique` counts the focus's killers only.
+  #
   # Dominance holds only inside a group. Under scope :class the group is the test class, so a
   # unit test is never reported redundant because a request test happens to hit the same
   # mutants; under :suite every test shares one group.
@@ -66,8 +71,9 @@ module Sabaku
     # universe: every test id the campaign knows. selected: {mutant id => selected test ids},
     # the only source for an incomplete row's tested set.
     # causes: {mutant id => one of CAUSES}, from Runner#incomplete_causes.
-    def self.from(results, universe:, selected: {}, scope: :class, causes: {})
-      new(results, universe: universe, selected: selected, scope: scope, causes: causes)
+    # focus: the test ids to keep, from Runner#focus_ids, or nil for every test.
+    def self.from(results, universe:, selected: {}, scope: :class, causes: {}, focus: nil)
+      new(results, universe: universe, selected: selected, scope: scope, causes: causes, focus: focus)
     end
 
     # A minitest id is "Klass#method", and Klass may hold "::".
@@ -78,25 +84,31 @@ module Sabaku
 
     attr_reader :rows, :incomplete, :verdicts, :scope
 
-    def initialize(results, universe:, selected: {}, scope: :class, causes: {})
+    def initialize(results, universe:, selected: {}, scope: :class, causes: {}, focus: nil)
       @scope = scope.to_sym
       raise Sabaku::Error, "kill-matrix scope must be one of #{SCOPES.join(", ")}" unless SCOPES.include?(@scope)
 
+      @focus = focus&.to_h { |test| [test.to_s, true] }
       @rows = {}
       @incomplete = []
       results.each do |result|
         next unless result.killed? || result.survived?
 
         if result.kills
-          @rows[result.mutant.id] = result.kills
+          row = focused(result.kills)
+          @rows[result.mutant.id] = row unless row.tested.empty?
         else
-          tested = Array(selected[result.mutant.id]).map(&:to_s).uniq.sort
+          tested = keep(Array(selected[result.mutant.id]).map(&:to_s).uniq.sort)
+          next if @focus && tested.empty?
+
           @incomplete << Incomplete.new(mutant: result.mutant, status: result.status, tested: tested,
                                         cause: causes[result.mutant.id])
         end
       end
       tests = Array(universe).map(&:to_s) + @rows.values.flat_map(&:tested) +
               @incomplete.flat_map(&:tested)
+      @universe_size = tests.uniq.size
+      tests = keep(tests)
       tally(@rows.values)
       provisional = @incomplete.flat_map(&:tested).to_h { |test| [test, true] }
       @verdicts = tests.uniq.sort.map { |test| verdict_for(test, provisional) }.freeze
@@ -104,6 +116,9 @@ module Sabaku
     end
 
     def verdict(test) = @by_test.fetch(test.to_s)
+
+    # {tests: focused tests, of: tests before the focus}, or nil without a focus.
+    def focus = @focus && { tests: verdicts.size, of: @universe_size }
 
     def ranking
       verdicts.select { |verdict| verdict.kind == :kept }
@@ -129,6 +144,7 @@ module Sabaku
         rows: rows.size,
         scope: scope,
         groups: verdicts.map(&:group).uniq.size,
+        focus: focus,
         incomplete: incomplete.map do |row|
           { mutant: row.mutant.id, status: row.status, tested: row.tested.size, cause: row.cause }
         end,
@@ -138,6 +154,14 @@ module Sabaku
     end
 
     private
+
+    def keep(tests) = @focus ? tests.select { |test| @focus.key?(test) } : tests
+
+    def focused(kills)
+      return kills unless @focus
+
+      Kills.new(tested: keep(kills.tested), killers: keep(kills.killers))
+    end
 
     # One bitmask per test over complete-row indices, so a subset check is `a & ~b == 0`.
     def tally(rows)

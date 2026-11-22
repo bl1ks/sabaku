@@ -8,8 +8,12 @@
 /// set of tests that would fail against the mutant, chosen at `init`. Every mutant selects
 /// every test, in id order.
 ///
+/// `Focus` is `--kill-matrix-focus`: a sweep runs only the focus's tests in the tail, so a row
+/// is the truth over the focus plus the first failure, which already ran (`Runner#row`).
+/// Test 1 sits outside it, so a first failure can fall on either side.
+///
 /// What the model checks is that the pass never writes a status, and that a row is either the
-/// whole truth or absent. A sweep that fails, or a swept killer whose reload control fails,
+/// whole truth over what it tested or absent. A sweep that fails, or a swept killer whose reload control fails,
 /// leaves the mutant scored with no row, and that missing row always says why
 /// (`Runner#incomplete_causes`).
 ///
@@ -24,8 +28,9 @@ module matrix {
 
   pure val Mutants = 0.to(N - 1)
   pure val Tests = 0.to(T - 1)
+  pure val Focus = Set(0, 2)
 
-  /// Fault switches. The honest model has all nine false. `variants.sh` flips exactly one line
+  /// Fault switches. The honest model has all ten false. `variants.sh` flips exactly one line
   /// per variant, and the gate requires an invariant to fail there.
   /// A failed sweep downgrades the kill it was asked about.
   pure val FAULT_sweep_writes_status = false
@@ -45,6 +50,8 @@ module matrix {
   pure val FAULT_sweep_cached_row = false
   /// A row is dropped without recording why.
   pure val FAULT_drop_without_cause = false
+  /// The sweep runs the whole tail and the row keeps tests outside the focus.
+  pure val FAULT_tail_ignores_focus = false
 
   type MState = {
     // "" until classified, then "killed", "survived", "timeout" or "error".
@@ -95,6 +102,13 @@ module matrix {
     else Tests.filter(t => t > f)
 
   pure def firstOf(s: Set[int], f: int): bool = s.contains(f) and s.forall(u => f <= u)
+
+  /// The tests a row covers: the focus, plus the first failure when the kill named one.
+  pure def rowScope(f: int): Set[int] = if (f < 0) Focus else Focus.union(Set(f))
+
+  /// `sweep_tail` cut down to the focus.
+  pure def focusedTail(f: int): Set[int] =
+    if (FAULT_tail_ignores_focus) tailAfter(f) else tailAfter(f).intersect(Focus)
 
   action update(i: int, s: MState): bool = all {
     m' = m.set(i, s),
@@ -151,7 +165,8 @@ module matrix {
       not(reported),
       s.cached == "with_row",
       s.row == "none",
-      update(i, { ...s, row: "complete", killers: truth.get(i), rowWrites: s.rowWrites + 1 }),
+      update(i, { ...s, row: "complete", killers: truth.get(i).intersect(rowScope(s.failedTest)),
+                  rowWrites: s.rowWrites + 1 }),
     }
   }
 
@@ -176,7 +191,7 @@ module matrix {
       s.row == "none",
       s.sweep == "idle",
       FAULT_sweep_cached_row or s.cached != "with_row",
-      update(i, { ...s, sweep: "queued", tail: tailAfter(s.failedTest) }),
+      update(i, { ...s, sweep: "queued", tail: focusedTail(s.failedTest) }),
     }
   }
 
@@ -297,8 +312,9 @@ module matrix {
 
   val INV_sweep_keeps_status = Mutants.forall(i => m.get(i).statusWrites == 0)
 
-  val INV_complete_row_is_truth =
-    Mutants.forall(i => m.get(i).row == "complete" implies m.get(i).killers == truth.get(i))
+  val INV_complete_row_is_truth = Mutants.forall(i =>
+    val s = m.get(i)
+    s.row == "complete" implies s.killers == truth.get(i).intersect(rowScope(s.failedTest)))
 
   val INV_killed_row_has_first = Mutants.forall(i =>
     val s = m.get(i)

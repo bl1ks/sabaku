@@ -127,12 +127,15 @@ interleaving inside the bound, not a sample.
 nondeterministic classification per mutant, which can leave a kill with or without a named test,
 a survivor, a timeout, an error, or a cache hit with or without a stored row. Each mutant then
 gets a row from the cache, an empty row as a survivor, or a sweep of its tail on a bounded pool
-followed by the reload control and the write. Two mutants, three tests and one worker.
+followed by the reload control and the write. Two mutants, three tests and one worker. A fixed
+`Focus` of two tests stands for `--kill-matrix-focus`: the sweep runs only the focus's part of the
+tail, so a row covers the focus plus the first failure.
 
 Checked invariants:
 
 - `INV_sweep_keeps_status`: the pass never writes a status, so the score cannot move.
-- `INV_complete_row_is_truth`: a written row is exactly the set of tests that fail.
+- `INV_complete_row_is_truth`: a written row is exactly the set of tests that fail among the focus
+  and the first failure.
 - `INV_killed_row_has_first`: a killed row contains the test that first failed.
 - `INV_survivor_row_empty`: a survivor's row is empty.
 - `INV_row_only_for_scored`: timeouts and errors never get a row.

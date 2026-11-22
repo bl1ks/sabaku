@@ -113,7 +113,7 @@ module Sabaku
 
       universe = coverage_map.test_ids | (adapter.preloaded? ? adapter.test_ids : [])
       KillMatrix.from(results, universe: universe, selected: runner.selections, scope: cfg.kill_matrix_scope,
-                               causes: runner.incomplete_causes)
+                               causes: runner.incomplete_causes, focus: runner.focus_ids)
     end
 
     # after_campaign runs once, after the last child, before the process exits.
@@ -211,6 +211,9 @@ module Sabaku
         o.on("--kill-matrix-scope=SCOPE", %w[class suite], "class (default) or suite: where one test can make another redundant") do |v|
           options[:kill_matrix_scope] = v.to_sym
         end
+        o.on("--kill-matrix-focus=GLOB", "sweep and judge only the tests in these files (repeatable)") do |v|
+          (options[:kill_matrix_focus] ||= []) << v
+        end
         o.on("--sweep-timeout=SEC", Float, "deadline for one kill-matrix sweep (default: --timeout)") do |v|
           options[:sweep_timeout] = v
         end
@@ -253,7 +256,7 @@ module Sabaku
       overrides[:test_globs] = overrides.delete(:tests) || [ENV.fetch("SABAKU_TEST_GLOB", "")].reject(&:empty?)
       keys = %i[paths exclude operators jobs timeout per_line diff_ranges
                 coverage isolation report output env requires setup setup_path fail_fast baseline weak
-                kill_matrix kill_matrix_scope sweep_timeout test_globs]
+                kill_matrix kill_matrix_scope kill_matrix_focus sweep_timeout test_globs]
       Config.default(**overrides.slice(*keys))
     end
 
@@ -343,6 +346,8 @@ module Sabaku
           --kill-matrix-scope=class|suite
                                      a test is redundant only next to tests of its own class
                                      (default), or next to any test in the suite
+          --kill-matrix-focus=GLOB   sweep and judge only the test classes in these files
+                                     (repeatable; needs scope class)
           --sweep-timeout=SEC        deadline for one kill-matrix sweep (default: --timeout)
           --env=KEY=VALUE            ENV set before the suite loads (repeatable)
           --require=PATH             require after coverage starts, before the tests
