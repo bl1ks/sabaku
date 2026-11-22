@@ -22,6 +22,7 @@ require_relative "sabaku/cache"
 require_relative "sabaku/runner"
 require_relative "sabaku/report"
 require_relative "sabaku/packs"
+require_relative "sabaku/doctor"
 require_relative "sabaku/cli"
 
 # Mutation testing for Ruby test suites.

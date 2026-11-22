@@ -26,6 +26,14 @@ module Sabaku
     # the one they asked for.
     UNMEASURED = (Result::REASONS[:skipped] - %i[fail_fast]).freeze
 
+    # Advice printed under a not-measured group whose message names a known cause. A hint
+    # never changes a status or a reason.
+    SkipHint = Data.define(:pattern, :doc)
+    SKIP_HINTS = [
+      SkipHint.new(pattern: /You called sig twice/, doc: "docs/rails.md#sorbet"),
+      SkipHint.new(pattern: /Multiple(?:Included|Prepend)Blocks/, doc: "docs/rails.md#concerns")
+    ].freeze
+
     attr_reader :results, :config, :kill_matrix
 
     # kill_matrix: a KillMatrix when the campaign ran with --kill-matrix, else nil.
@@ -196,6 +204,8 @@ module Sabaku
         where = list.size == 1 ? "#{path}:#{list.first.mutant.line}" : path
         reason = message.delete_prefix("not measured: ")
         out << format("  %5d  %s  %s\n", list.size, where, clamp_message(reason, limit: 100))
+        hint = SKIP_HINTS.find { |candidate| message.to_s.match?(candidate.pattern) }
+        out << "         see #{hint.doc}\n" if hint
       end
       rest = groups.drop(shown.size).sum { |_key, list| list.size }
       if rest.positive?

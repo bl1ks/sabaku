@@ -140,6 +140,24 @@ class ReportTest < Minitest::Test
     refute_includes text, "--fail-fast"
   end
 
+  def test_a_known_cause_of_an_unloadable_mutation_points_at_its_recipe
+    results = [
+      reasoned(:skipped, :mutation_unloadable, line: 2,
+                                               message: "the mutated file does not load " \
+                                                        "(ActiveSupport::Concern::MultipleIncludedBlocks: Cannot define " \
+                                                        "multiple 'included' blocks for a Concern)"),
+      reasoned(:skipped, :mutation_unloadable, line: 3,
+                                               message: "the mutated file does not load (RuntimeError: You called sig twice " \
+                                                        "without declaring a method in between)"),
+      reasoned(:skipped, :suite_unloadable, line: 4, message: "the suite could not load (boom)")
+    ]
+    text = report(results).unmeasured_lines
+
+    assert_includes text, "see docs/rails.md#concerns"
+    assert_includes text, "see docs/rails.md#sorbet"
+    assert_equal 2, text.scan("see docs/rails.md").size, text
+  end
+
   def test_uncovered_mutants_are_split_by_why_no_test_ran_them
     results = [
       Sabaku::Result.new(mutant: mutant(path: "lib/a.rb"), status: :uncovered, reason: :uninstrumented),

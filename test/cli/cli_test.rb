@@ -60,6 +60,56 @@ class CLITest < Minitest::Test
     end
   end
 
+  def test_doctor_without_a_setup_does_not_boot
+    in_project do
+      code, out, err = start(["doctor"])
+
+      assert_equal 0, code, err
+      assert_includes out, "not booted"
+    end
+  end
+
+  def test_doctor_boots_the_setup_and_warns_about_what_a_campaign_would_get_wrong
+    in_project do
+      File.write("lib/doctor_lazy.rb", "class DoctorLazy\n  def self.one = 1\nend\n")
+      File.write("lib/doctor_eager.rb", "class DoctorEager\n  def self.two = 2\nend\n")
+      FileUtils.mkdir_p("test")
+      File.write("test/doctor_test.rb", <<~RUBY)
+        require "minitest/autorun"
+        require "doctor_eager"
+
+        class DoctorCheckTest < Minitest::Test
+          def test_lazy
+            require "doctor_lazy"
+            assert_equal 1, DoctorLazy.one
+          end
+        end
+      RUBY
+      File.write("sabaku.rb", "after_campaign { File.write('cleaned', 'yes') }\n")
+
+      code, out, err = start(["doctor", "lib/doctor_*.rb", "--setup=sabaku.rb", "--jobs=2"])
+
+      assert_equal 0, code, err
+      assert_match(/warn\s+eager_load\s+.*lib\/doctor_lazy\.rb/, out)
+      refute_match(/eager_load.*doctor_eager/, out)
+      assert_match(/warn\s+child_start/, out)
+      assert_equal "yes", File.read("cleaned"), "doctor fires after_campaign"
+    end
+  end
+
+  def test_doctor_reports_a_boot_failure_as_a_finding
+    in_project do
+      File.write("sabaku.rb", "after_boot { raise 'no database' }\n")
+      FileUtils.mkdir_p("test")
+      File.write("test/doctor_boot_test.rb", "require 'minitest/autorun'\nclass DoctorBootTest < Minitest::Test\n  def test_x = assert(true)\nend\n")
+
+      code, out, err = start(["doctor", "--setup=sabaku.rb"])
+
+      assert_equal 0, code, err
+      assert_match(/warn\s+boot\s+.*no database/, out)
+    end
+  end
+
   def test_since_restricts_the_mutants_to_the_lines_a_revision_changed
     Dir.mktmpdir("sabaku-cli-git") do |dir|
       Dir.chdir(dir) do

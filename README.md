@@ -37,7 +37,7 @@ sabaku run --diff=changed_lines.json
 # what would run, without running it
 sabaku list
 
-# environment check
+# environment check; with --setup, boot the project and warn about the setup
 sabaku doctor
 ```
 
@@ -293,6 +293,13 @@ has the recipes for transactional fixtures, per-child SQLite copies, PostgreSQL 
 clones and a Redis db per slot, plus what can and
 cannot be targeted. `bin/check-rails` runs both campaigns, with a throwaway MySQL server for the
 MySQL half.
+
+`sabaku doctor app --setup=sabaku.rb --jobs=4` boots the app the way a campaign does, runs no
+test, and warns about what would skew the numbers: a boot that fails, Coverage started without
+line counters (SimpleCov), target files the boot did not load (no eager load), and `--jobs` above
+1 without a `child_start` hook. It also names `parallelize`, Concerns and sorbet-runtime when it
+finds them. A not-measured group whose error is a known Concern or Sorbet failure points at its
+recipe in `docs/rails.md`.
 
 ## Limits
 

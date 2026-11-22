@@ -145,6 +145,28 @@ module Sabaku
     end
 
     def doctor_command
+      options = parse
+      return EXIT_OK unless options
+
+      cfg = build_config(options)
+      print_environment
+      sources = begin
+        load_sources(cfg)
+      rescue Sabaku::Error
+        []
+      end
+      facts = Doctor.facts(cfg, start_adapter(cfg), sources)
+      @out.puts("  boot       #{Doctor.boots?(cfg) ? "booted" : "not booted (pass --setup or --require)"}")
+      findings = Doctor.findings(facts)
+      @out.puts(findings.empty? ? "\nfindings: none" : "\nfindings:")
+      findings.each do |finding|
+        see = finding.doc ? "  (see #{finding.doc})" : ""
+        @out.puts(format("  %-4s  %-17s  %s%s", finding.severity, finding.id, finding.message, see))
+      end
+      EXIT_OK
+    end
+
+    def print_environment
       @out.puts("sabaku #{VERSION}")
       @out.puts("  ruby       #{RUBY_VERSION}")
       @out.puts("  prism      #{defined?(Prism::VERSION) ? Prism::VERSION : "missing"}")
@@ -153,7 +175,6 @@ module Sabaku
       @out.puts("  coverage   #{require_coverage}")
       @out.puts("  cpus       #{cpu_count}")
       @out.puts("  operators  #{Operator::Registry.ids.join(", ")}")
-      EXIT_OK
     end
 
     # Doctor has to answer "will the suite work here", which means trying the require
@@ -345,7 +366,8 @@ module Sabaku
 
           sabaku run [paths]     mutate, run the covering tests, report
           sabaku list [paths]    show the mutants without running them
-          sabaku doctor          report the environment
+          sabaku doctor [paths]  report the environment; with --setup or --require, boot
+                                 the project and warn about what would skew a campaign
 
         Common options:
           --jobs=N                   mutants in flight at once

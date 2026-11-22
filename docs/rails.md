@@ -231,6 +231,81 @@ its `<prefix>_*` databases behind. `after_campaign` drops by prefix, so a later 
 With the default pid-based prefix the next run uses a new namespace, so an orphaned set needs a
 manual `DROP DATABASE`.
 
+## Check the setup with doctor
+
+`sabaku doctor app --setup=sabaku.rb --jobs=4` boots the project the way the coverage pass does
+(`env`, `Coverage.start`, `require_path`, the test files, `after_boot`), runs no test, fires
+`after_campaign`, and prints what would skew a campaign:
+
+| Finding | Severity | What it means |
+| --- | --- | --- |
+| `boot` | warn | the boot raised, so a campaign would stop with exit 2 |
+| `coverage_mode` | warn | Coverage runs without line counters; see [SimpleCov](#simplecov) |
+| `eager_load` | warn | target files are not loaded after `after_boot`; see [Why eager load](#why-eager-load) |
+| `child_start` | warn | `--jobs` above 1 and no `child_start` hook; see [Database recipes](#database-recipes) |
+| `parallel_executor` | info | `parallelize` installed its executor; sabaku never calls it, `--jobs` is the knob |
+| `concerns` | info | a target extends `ActiveSupport::Concern`; see [Concerns](#concerns) |
+| `sorbet_runtime` | info | sorbet-runtime is loaded; see [Sorbet](#sorbet) |
+
+Without `--setup` or `--require` it only reports the environment. Doctor exits 0: the findings
+are advice, and a campaign still decides for itself.
+
+## SimpleCov
+
+The coverage pass needs `Coverage` with line counters. A `SimpleCov.start` in `test_helper.rb`
+either fails because sabaku started `Coverage` first, or, when it ran first in another mode such
+as `oneshot_lines`, makes the coverage pass stop with an error. Keep SimpleCov out of a campaign:
+
+```ruby
+# test/test_helper.rb
+require "simplecov"
+SimpleCov.start "rails" unless ENV["SKIP_SIMPLECOV"]
+```
+
+```ruby
+# sabaku.rb
+env "SKIP_SIMPLECOV" => "1"
+```
+
+`--env=SKIP_SIMPLECOV=1` does the same from the command line.
+
+## Concerns
+
+`ActiveSupport::Concern` remembers the first `included` (and `prepended`) block a module defines.
+When a mutation moves that block to another line, re-evaluating the file defines a second one,
+Active Support raises `MultipleIncludedBlocks`, and the mutant is reported `skipped` as a mutation
+that does not load. sabaku does not reach into Active Support for this; a setup file can let the
+child forget the block before the mutated file defines it again:
+
+```ruby
+child_start do
+  ActiveSupport::Concern.prepend(Module.new do
+    def included(base = nil, &block)
+      remove_instance_variable(:@_included_block) if base.nil? && instance_variable_defined?(:@_included_block)
+      super
+    end
+
+    def prepended(base = nil, &block)
+      remove_instance_variable(:@_prepended_block) if base.nil? && instance_variable_defined?(:@_prepended_block)
+      super
+    end
+  end)
+end
+```
+
+The block only changes what the concern stores for classes that include it later; classes that
+included it at boot keep the original. A mutation inside an `included` block is therefore not
+observable by tests on those classes.
+
+## Sorbet
+
+sabaku leaves type annotations alone: a `sig` block, the type arguments of `T.let`, `T.cast`,
+`T.bind`, `T.assert_type!` and `T.must_because`, and the type of a `T::Struct` `const` or `prop`
+are arid, and statement deletion never removes a `def` that follows a `sig`, because the leftover
+`sig` makes sorbet-runtime raise `You called sig twice` when the file is evaluated again. A skipped
+group that still names that error comes from some other mutation that separated a `sig` from its
+`def`; its mutants stay out of the score.
+
 ## What can be targeted
 
 Models, service objects, jobs, mailers, helpers, and controllers reached through integration tests

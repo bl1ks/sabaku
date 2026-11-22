@@ -69,6 +69,26 @@ class RailsCampaignTest < Minitest::Test
     end
   end
 
+  def test_doctor_boots_rails_and_warns_only_about_the_setup_that_skips_eager_load_and_child_start
+    Dir.mktmpdir("sabaku-rails-doctor") do |dir|
+      app = File.join(dir, "app")
+      FileUtils.cp_r(APP, app)
+      _out, err, status = run!(app, RbConfig.ruby, "bin/rails", "db:schema:load", env: { "RAILS_ENV" => "test" })
+      assert_equal 0, status.exitstatus, "db:schema:load failed: #{err}"
+      File.write(File.join(app, "bare.rb"), "env \"RAILS_ENV\" => \"test\"\nrequire_path \"./config/environment\"\n")
+
+      bare, err, status = run!(app, RbConfig.ruby, BIN, "doctor", "app/models", "--setup=bare.rb", "--jobs=4")
+      assert_equal 0, status.exitstatus, err
+      assert_match(/warn\s+eager_load\s+.*app\/models\//, bare)
+      assert_match(/warn\s+child_start/, bare)
+
+      full, err, status = run!(app, RbConfig.ruby, BIN, "doctor", "app/models", "--setup=sabaku.rb", "--jobs=4")
+      assert_equal 0, status.exitstatus, err
+      assert_includes full, "booted"
+      refute_match(/^\s+warn/, full)
+    end
+  end
+
   private
 
   def rails_available?
