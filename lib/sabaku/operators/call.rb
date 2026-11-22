@@ -2,6 +2,7 @@
 
 require_relative "replacement"
 require_relative "support"
+require_relative "../aridity"
 
 module Sabaku
   module Operator
@@ -35,6 +36,8 @@ module Sabaku
 
       def self.mutations(node, source)
         return [] unless safe?(node)
+        # `T.let(x, Type)` to `x` drops only a runtime type check; the value is mutated inside.
+        return [] if Aridity.type_call?(node)
 
         arguments = node.arguments ? node.arguments.arguments : []
         return [] if arguments.any?(Prism::MissingNode)

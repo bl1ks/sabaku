@@ -81,21 +81,34 @@ theorem any_perm {α : Type u} (p : α → Bool) {l₁ l₂ : List α} (h : l₁
   | swap x y l => simp [Bool.or_left_comm]
   | trans _ _ ih₁ ih₂ => rw [ih₁, ih₂]
 
-/-- The shape of `Aridity#expert_arid?` and `suppressed_definition_ancestor?` together: two
-    ancestor scans plus a node-local verdict. -/
+/-- `Aridity#type_argument?`: `typeArg a n` holds when `a` is a `T.let`-style call and `n` lies in
+    an argument after the value, `fieldArg a n` when `a` is a `const`/`prop` call and `n` lies in
+    its type or a non-default option. A field only counts inside a `T::Struct` class, and both
+    scans are `any?`, so neither sees which ancestor is nearer. -/
+def sorbetOf (typeArg fieldArg : Node → Node → Bool) (isStruct : Node → Bool)
+    (ctx : List Node) (n : Node) : Bool :=
+  ctx.any (typeArg · n) || (ctx.any isStruct && ctx.any (fieldArg · n))
+
+/-- The shape of `Aridity#arid?`'s first three branches together: the ancestor scans of
+    `suppressed_definition_ancestor?`, `argument_of_arid_call?` and `type_argument?`, plus the
+    node-local verdict of `expert_arid?`. -/
 def baseOf (isSuppressedDef : Node → Bool) (isAridCall : Node → Bool)
+    (typeArg fieldArg : Node → Node → Bool) (isStruct : Node → Bool)
     (expert : Node → Bool) (ctx : List Node) (n : Node) : Bool :=
-  ctx.any isSuppressedDef || ctx.any isAridCall || expert n
+  ctx.any isSuppressedDef || ctx.any isAridCall || sorbetOf typeArg fieldArg isStruct ctx n ||
+    expert n
 
 /-- A base predicate that only scans ancestors cannot see their order. -/
 def BasePermInvariant (base : List Node → Node → Bool) : Prop :=
   ∀ (ctx₁ ctx₂ : List Node) (n : Node), ctx₁.Perm ctx₂ → base ctx₁ n = base ctx₂ n
 
-theorem baseOf_perm (isSuppressedDef isAridCall expert : Node → Bool) :
-    BasePermInvariant (baseOf isSuppressedDef isAridCall expert) := by
+theorem baseOf_perm (isSuppressedDef isAridCall : Node → Bool)
+    (typeArg fieldArg : Node → Node → Bool) (isStruct expert : Node → Bool) :
+    BasePermInvariant (baseOf isSuppressedDef isAridCall typeArg fieldArg isStruct expert) := by
   intro ctx₁ ctx₂ n h
-  simp only [baseOf]
-  rw [any_perm isSuppressedDef h, any_perm isAridCall h]
+  simp only [baseOf, sorbetOf]
+  rw [any_perm isSuppressedDef h, any_perm isAridCall h, any_perm (typeArg · n) h,
+    any_perm isStruct h, any_perm (fieldArg · n) h]
 
 /-- The aridity verdict does not depend on the order of the ancestor stack. The implementation
     builds the stack with `ancestors + [node]` and scans it with `reverse_each`, so this is the
@@ -138,6 +151,20 @@ theorem arid_mono (b₁ b₂ : List Node → Node → Bool)
           rcases hh with hb | hall
           · exact Or.inl (h ctx _ hb)
           · exact Or.inr (fun x hx => ih _ x (hall x hx))
+
+/-- The Sorbet rules only add aridity: every node arid without them is still arid. -/
+theorem sorbet_only_adds (isSuppressedDef isAridCall : Node → Bool)
+    (typeArg fieldArg : Node → Node → Bool) (isStruct expert : Node → Bool) :
+    ∀ (n : Nat) (ctx : List Node) (t : Node),
+      arid (fun ctx n => ctx.any isSuppressedDef || ctx.any isAridCall || expert n) n ctx t = true →
+        arid (baseOf isSuppressedDef isAridCall typeArg fieldArg isStruct expert) n ctx t = true := by
+  apply arid_mono
+  intro ctx t h
+  simp only [baseOf, Bool.or_eq_true] at h ⊢
+  rcases h with (h | h) | h
+  · exact Or.inl (Or.inl (Or.inl h))
+  · exact Or.inl (Or.inl (Or.inr h))
+  · exact Or.inr h
 
 /-- A node is inside its own subtree. -/
 inductive Subtree : Node → Node → Prop where

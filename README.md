@@ -233,6 +233,11 @@ Suppressed because a unit test asserting them is not testing behaviour:
 - `__FILE__`, `__dir__`, `__method__`, `freeze`, `frozen?`
 - an `if` / `unless` / `while` / `until` whose whole body is a logging call, because mutating the
   guard on a debug log is not actionable
+- Sorbet `sig` / `abstract!` and the type arguments of `T.let` / `T.cast` / `T.bind` /
+  `T.assert_type!` / `T.must_because`, and of `const` / `prop` on a `T::Struct` (the value, and
+  `T.must(x)`, stay mutable)
+- statement deletion also keeps a `def` that follows a `sig`, because that rewrite only fails to
+  load under sorbet-runtime
 
 A compound node is arid when every child is arid, which is the paper's rule. The database,
 network or filesystem call in an `if` body keeps that `if` live.

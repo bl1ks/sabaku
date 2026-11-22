@@ -234,6 +234,53 @@ end
     assert arid?(arid, Prism::StatementsNode)
   end
 
+  SORBET_TEXT = <<~RUBY
+    class Point < T::Struct
+      const :x, Integer
+      prop :label, T.nilable(String), default: "origin"
+    end
+
+    class Shape
+      extend T::Sig
+      abstract!
+
+      sig { params(width: Integer).returns(T.nilable(Integer)) }
+      def area(width)
+        @cache = T.let(width * 2, T.nilable(Integer))
+        T.cast(@cache, Integer) + T.must(@cache)
+      end
+    end
+  RUBY
+
+  def sorbet_mutants
+    analyze(source(SORBET_TEXT), operators: Sabaku::Operator::Registry.ids, per_line: 99)
+  end
+
+  def test_sorbet_type_annotations_produce_no_mutant
+    lines = sorbet_mutants.map(&:line).uniq
+
+    assert_empty lines & [7, 8, 10], "sig, extend and abstract! are declarations"
+    assert(sorbet_mutants.none? { |mutant| mutant.original.match?(/\A(?:T\.nilable\()?(?:Integer|String)\)?\z/) },
+           "a type argument is not a fault site")
+    wrappers = ["T.let(width * 2, T.nilable(Integer))", "T.cast(@cache, Integer)"]
+    assert_empty sorbet_mutants.map(&:original) & wrappers, "dropping a type wrapper only removes a runtime check"
+  end
+
+  def test_sorbet_values_stay_mutable
+    originals = sorbet_mutants.map(&:original)
+
+    assert_includes originals, "width * 2"
+    assert_includes originals, "T.must(@cache)"
+    assert_includes originals, "\"origin\""
+  end
+
+  def test_const_outside_a_struct_keeps_its_arguments
+    mutants = analyze(source("class Config\n  const :x, Integer\nend\n"),
+                      operators: Sabaku::Operator::Registry.ids, per_line: 99)
+
+    assert(mutants.any? { |mutant| mutant.original == "const :x, Integer" })
+  end
+
   def test_program_is_arid_when_all_statements_are_arid
     built = source("puts 1\nputs 2\n")
 

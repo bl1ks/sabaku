@@ -390,4 +390,13 @@ Suppressed because unit tests do not assert them, or because killing them teache
 - string and symbol literals that are arguments of a suppressed call (a log message is not a fault
   site)
 - `__FILE__`, `__dir__`, `__method__`, `freeze`, `.frozen?`, `# frozen_string_literal: true`
+- Sorbet declarations: receiverless `sig`, `abstract!`, `interface!`, `final!`, `sealed!`,
+  `mixes_in_class_methods`, `requires_ancestor`
+- type arguments of `T.let` / `T.cast` / `T.bind` / `T.assert_type!` / `T.must_because` (the value
+  argument stays mutable; `T.must(x)` stays mutable because dropping it removes a nil check)
+- type arguments of `const` / `prop` inside a `T::Struct` / `T::InexactStruct` class (`default:` /
+  `factory:` stay mutable)
 - compound node: arid iff every child is arid
+
+Statement deletion (`sbr`) also refuses to delete a `def` that is immediately preceded by a
+receiverless `sig` call: re-evaluating that file only raises under sorbet-runtime.

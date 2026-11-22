@@ -11,7 +11,14 @@ module Sabaku
     DECLARATION_METHODS = %i[
       attr_accessor attr_reader attr_writer include extend prepend private protected public
       module_function alias_method using
+      sig abstract! interface! final! sealed! mixes_in_class_methods requires_ancestor
     ].freeze
+    # `T.let(value, Type)` and its kind: the value is behaviour, the type only a runtime check.
+    # `T.must` is absent on purpose, because dropping it removes a real nil check.
+    TYPE_CALLS = %i[let cast bind assert_type! must_because].freeze
+    STRUCT_FIELDS = %i[const prop].freeze
+    STRUCT_SUPERCLASSES = %w[T::Struct T::InexactStruct ::T::Struct ::T::InexactStruct].freeze
+    MUTABLE_FIELD_OPTIONS = %i[default factory].freeze
     SUPPRESSED_DEF_METHODS = %i[
       to_s inspect hash == eql? <=> method_missing respond_to_missing?
     ].freeze
@@ -36,8 +43,14 @@ module Sabaku
     LOGGER_RECEIVER = /\A(?:@?logger|Rails\.logger)(?:\.|\z)/.freeze
     UPPERCASE_CONSTANT = /\A[A-Z][A-Z0-9_]*\z/.freeze
 
+    def self.type_call?(node)
+      node.is_a?(Prism::CallNode) && TYPE_CALLS.include?(node.name) &&
+        node.receiver.is_a?(Prism::ConstantReadNode) && node.receiver.name == :T && !node.arguments.nil?
+    end
+
     def arid?(node, ancestors = [])
       return true if suppressed_definition_ancestor?(ancestors)
+      return true if type_argument?(node, ancestors)
       return true if expert_arid?(node, ancestors)
 
       children = node.compact_child_nodes
@@ -131,6 +144,45 @@ module Sabaku
         end
       end
       false
+    end
+
+    # Both scans use `any?`, so the verdict does not depend on the order of the ancestors.
+    # A `const` outside a `T::Struct` is someone else's helper and keeps its arguments.
+    def type_argument?(node, ancestors)
+      type_call = ancestors.any? do |ancestor|
+        self.class.type_call?(ancestor) && within?(node, ancestor.arguments.arguments.drop(1))
+      end
+      return true if type_call
+
+      ancestors.any? { |ancestor| struct_class?(ancestor) } &&
+        ancestors.any? { |ancestor| struct_field?(ancestor) && within?(node, field_type_arguments(ancestor)) }
+    end
+
+    def struct_class?(node)
+      node.is_a?(Prism::ClassNode) && STRUCT_SUPERCLASSES.include?(node.superclass&.slice)
+    end
+
+    def struct_field?(node)
+      node.is_a?(Prism::CallNode) && node.receiver.nil? && STRUCT_FIELDS.include?(node.name) &&
+        !node.arguments.nil?
+    end
+
+    def field_type_arguments(call)
+      call.arguments.arguments.drop(1).flat_map do |argument|
+        next [argument] unless argument.is_a?(Prism::KeywordHashNode)
+
+        argument.elements.reject do |element|
+          element.is_a?(Prism::AssocNode) && element.key.is_a?(Prism::SymbolNode) &&
+            MUTABLE_FIELD_OPTIONS.include?(element.key.unescaped.to_sym)
+        end
+      end
+    end
+
+    def within?(node, arguments)
+      arguments.any? do |argument|
+        node.location.start_offset >= argument.location.start_offset &&
+          node.location.end_offset <= argument.location.end_offset
+      end
     end
 
     def suppressed_definition_ancestor?(ancestors)
