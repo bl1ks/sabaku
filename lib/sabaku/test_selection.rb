@@ -33,7 +33,9 @@ module Sabaku
       end
 
       # A line only the boot ran (a class body DSL, a schema block) is owned by no single
-      # test; a test that reached the file is the one that can observe what it built.
+      # test; a test that reached the file is the one that can observe what it built. An
+      # endless method only looks boot-only, and the file's reach can miss its one reader.
+      return [] if unattributable?(mutant, source)
       return [] unless (mutant.line..last_line).any? { |line| @coverage_map.load_time_only?(mutant.path, line) }
 
       @coverage_map.ordered_tests_for_file(mutant.path)
